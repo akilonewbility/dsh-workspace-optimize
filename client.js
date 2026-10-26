@@ -120,6 +120,8 @@ window.__ModuleLoader__.load({
         'sidebar.rail': '展开侧栏',
         'sidebar.broken': '日志不可用',
         'sidebar.running': '运行中',
+        'sidebar.pendingApproval': '等待审批',
+        'sidebar.pendingQuestion': '等待回答',
         'sidebar.schedules': '{count} 个定时任务',
         'search.results': '正文命中',
         'view.options': '视图选项',
@@ -247,6 +249,8 @@ window.__ModuleLoader__.load({
         'sidebar.rail': 'Expand sidebar',
         'sidebar.broken': 'log unavailable',
         'sidebar.running': 'Running',
+        'sidebar.pendingApproval': 'Waiting for approval',
+        'sidebar.pendingQuestion': 'Waiting for answer',
         'sidebar.schedules': '{count} scheduled task(s)',
         'search.results': 'Content matches',
         'view.options': 'View options',
@@ -1807,7 +1811,14 @@ window.__ModuleLoader__.load({
       // 状态点：运行中蓝色呼吸；完成但未查看绿色常亮；其余为默认空心点。
       const completedAt = typeof session.completedAt === 'number' ? session.completedAt : 0
       const seenAt = (store.seenAt && store.seenAt.get(session.id)) || 0
-      const dotState = session.running ? 'running' : completedAt > seenAt ? 'done' : 'idle'
+      const pending = typeof session.pending === 'string' ? session.pending : ''
+      const dotState = pending
+        ? 'pending'
+        : session.running
+          ? 'running'
+          : completedAt > seenAt
+            ? 'done'
+            : 'idle'
       return h(
         'div',
         {
@@ -1864,7 +1875,13 @@ window.__ModuleLoader__.load({
         h('span', {
           // 空闲时保留占位（不可见）以保证各行标题对齐；运行时蓝色呼吸、完成未查看绿色常亮。
           className: `dwo-srow-dot${
-            dotState === 'running' ? ' dwo-srow-dot-running' : dotState === 'done' ? ' dwo-srow-dot-done' : ' dwo-srow-dot-idle'
+            dotState === 'pending'
+              ? ' dwo-srow-dot-pending'
+              : dotState === 'running'
+                ? ' dwo-srow-dot-running'
+                : dotState === 'done'
+                  ? ' dwo-srow-dot-done'
+                  : ' dwo-srow-dot-idle'
           }`,
         }),
         h('span', { className: 'dwo-srow-title', style: color ? { color: COLOR_HEX[color] } : undefined }, label),
@@ -2183,6 +2200,11 @@ window.__ModuleLoader__.load({
               const session = byId.get(snap.hover.sessionId)
               if (!session) return null
               const meta = [
+                session.pending === 'approval'
+                  ? t('sidebar.pendingApproval')
+                  : session.pending === 'question'
+                    ? t('sidebar.pendingQuestion')
+                    : '',
                 session.running ? t('sidebar.running') : '',
                 session.scheduleCount > 0 ? t('sidebar.schedules', { count: session.scheduleCount }) : '',
                 session.archived ? t('sidebar.archived') : '',
@@ -2527,6 +2549,7 @@ window.__ModuleLoader__.load({
 .dwo-srow-leading:empty{display:none}
 .dwo-schedule-mark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:0 0 auto;color:#60a5fa}
 .dwo-srow-dot-running{background:#60a5fa;animation:dwo-pulse 1.2s ease-in-out infinite}
+.dwo-srow-dot-pending{background:#fbbf24;animation:dwo-pulse 1.2s ease-in-out infinite}
 .dwo-srow-dot-done{background:#34d399}
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

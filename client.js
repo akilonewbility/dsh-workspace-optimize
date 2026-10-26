@@ -519,11 +519,19 @@ window.__ModuleLoader__.load({
     }
 
     function reloadUi() {
+      // 先主动断开 SSE，减少页面重载后宿主侧的残留连接（避免 409/报错）。
       try {
-        window.location.reload()
+        disconnectChannel()
       } catch {
-        pushToast(t('settings.reloadFailed'))
+        // 通道已关闭
       }
+      setTimeout(() => {
+        try {
+          window.location.reload()
+        } catch {
+          pushToast(t('settings.reloadFailed'))
+        }
+      }, 150)
     }
 
     // ------------------------------------------------------------------ 自绘侧栏数据
@@ -1048,8 +1056,11 @@ window.__ModuleLoader__.load({
     }
 
     function showNotification(event) {
-      const title = t(`notify.${event.kind}`)
-      const body = event.title || (typeof event.sessionId === 'string' ? event.sessionId.slice(0, 8) : '')
+      const fallbackName = typeof event.sessionId === 'string' ? event.sessionId.slice(0, 8) : ''
+      const isComplete = event.kind === 'complete'
+      // 完成通知：标题 = 会话标题，正文 = 最终答复；其它类型保持「事件名 + 会话标题」。
+      const title = isComplete ? event.title || fallbackName : t(`notify.${event.kind}`)
+      const body = isComplete ? event.summary || '' : event.title || fallbackName
       const onClick = () => openSession(event.sessionId)
       const fallback = () => pushToast(`${title}${body ? ` · ${body}` : ''}`)
 
@@ -2006,7 +2017,7 @@ window.__ModuleLoader__.load({
                   ? null
                   : h(
                       'div',
-                      { className: 'dwo-rows' },
+                      { className: 'dwo-rows', style: { paddingLeft: `${10 + depth * 12}px` } },
                       rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
                     ),
             ),

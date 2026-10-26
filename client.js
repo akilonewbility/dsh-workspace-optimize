@@ -2380,19 +2380,21 @@ window.__ModuleLoader__.load({
             onClick: (event) => event.stopPropagation(),
           },
           props.items.map((item, index) =>
-            h(
-              'button',
-              {
-                key: `${index}-${item.label}`,
-                type: 'button',
-                role: 'menuitem',
-                className: 'dwo-menu-item',
-                disabled: item.disabled === true,
-                onClick: () => item.run(),
-              },
-              item.checked ? h('span', { className: 'dwo-check' }, '✓') : null,
-              h('span', null, item.label),
-            ),
+            item.separator
+              ? h('div', { key: `sep-${index}`, className: 'dwo-menu-separator' })
+              : h(
+                  'button',
+                  {
+                    key: `${index}-${item.label}`,
+                    type: 'button',
+                    role: 'menuitem',
+                    className: 'dwo-menu-item',
+                    disabled: item.disabled === true,
+                    onClick: () => item.run(),
+                  },
+                  h('span', { className: 'dwo-check' }, item.checked ? '✓' : ''),
+                  h('span', { className: 'dwo-menu-label' }, item.label),
+                ),
           ),
         ),
       )
@@ -2432,8 +2434,10 @@ window.__ModuleLoader__.load({
         return [
           { label: t('view.group.flat'), checked: view.groupBy !== 'tree', run: () => { setGroupBy('flat'); closeDialog() } },
           { label: t('view.group.tree'), checked: view.groupBy === 'tree', run: () => { setGroupBy('tree'); closeDialog() } },
+          { separator: true },
           { label: t('view.order.updated'), checked: view.order === 'updated', run: () => { setOrderMode('updated'); closeDialog() } },
           { label: t('view.order.manual'), checked: view.order === 'manual', run: () => { setOrderMode('manual'); closeDialog() } },
+          { separator: true },
           { label: t('view.filter.hide'), checked: view.filter === 'hide', run: () => { setArchivedFilter('hide'); closeDialog() } },
           { label: t('view.filter.show'), checked: view.filter === 'show', run: () => { setArchivedFilter('show'); closeDialog() } },
           { label: t('view.filter.only'), checked: view.filter === 'only', run: () => { setArchivedFilter('only'); closeDialog() } },
@@ -2704,7 +2708,9 @@ window.__ModuleLoader__.load({
 .dwo-rail-button:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
 .dwo-overlay-clear{background:transparent}
 .dwo-popover{position:fixed;z-index:2147482000;min-width:200px;max-width:280px;max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:1px;padding:5px;border-radius:10px;background:var(--dsw-alias-bg-elevated,#20242e);color:var(--dsw-alias-label-primary,#e8eaf0);border:1px solid color-mix(in srgb,currentColor 14%,transparent);box-shadow:0 16px 38px rgba(0,0,0,.4)}
-.dwo-check{width:14px;display:inline-block;text-align:center;opacity:.85}
+.dwo-check{width:14px;display:inline-block;text-align:center;opacity:.85;flex:0 0 auto}
+.dwo-menu-label{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dwo-menu-separator{height:1px;margin:4px 6px;background:color-mix(in srgb,currentColor 12%,transparent)}
 .dwo-input{width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:13px;outline:none}
 .dwo-input:focus{border-color:color-mix(in srgb,currentColor 38%,transparent)}
 `

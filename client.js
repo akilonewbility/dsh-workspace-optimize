@@ -950,8 +950,13 @@ window.__ModuleLoader__.load({
           refreshSidebar().catch(() => {})
         }
         if (Object.prototype.hasOwnProperty.call(patch, 'sidebarMode')) {
-          // 覆盖会移除官方 entry，无法就地撤销：切换后重载页面让其重新注册。
-          setTimeout(() => reloadUi(), 500)
+          if (patch.sidebarMode === 'native') {
+            // 覆盖会移除官方 entry，无法就地撤销：切回官方必须重载页面。
+            setTimeout(() => reloadUi(), 300)
+          } else if (typeof sidebarModeSync === 'function') {
+            // 切回增强侧栏可以直接注册，不需要重载。
+            sidebarModeSync()
+          }
         }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
@@ -2514,12 +2519,6 @@ window.__ModuleLoader__.load({
                 {
                   name: 'sidebar.workspaces',
                   priority: -1,
-                  // 声明并渲染会话行的两个子插槽，让 Schedule 的时钟标记等
-                  // 官方贡献重新注册进来（这两个插槽没有 hookContext，声明成本低）。
-                  children: {
-                    'sidebar.session.row.leading': { kind: 'list', scope: 'root' },
-                    'sidebar.session.row.hover': { kind: 'list', scope: 'root' },
-                  },
                 },
                 SidebarRoot,
               ),

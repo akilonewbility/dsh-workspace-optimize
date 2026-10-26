@@ -1926,16 +1926,31 @@ window.__ModuleLoader__.load({
       const workspace = props.workspace
       const rows = props.rows
       const depth = typeof props.depth === 'number' ? props.depth : 0
+      const childCount = typeof props.childCount === 'number' ? props.childCount : 0
       const snap = useSnapshot()
       const folded = view.folded[workspace.id] === true
       const color = snap.colors[workspace.id]
       const favorite = snap.workspaceFavorites.has(workspace.id)
+      // 括号计数 = 自己的会话 + 直接子工作区数量（不递归统计子文件夹里的会话）。
+      const count = rows.length + childCount
+      const title = workspace.title || workspace.path || workspace.id
       return h(
         'div',
         { className: 'dwo-group' },
         h(
           'div',
-          { className: 'dwo-ws', style: { paddingLeft: `${4 + depth * 12}px` } },
+          {
+            className: 'dwo-ws',
+            style: { paddingLeft: `${4 + depth * 12}px` },
+            onDoubleClick: (event) => {
+              if (event.target && event.target.closest && event.target.closest('.dwo-ws-fold, .dwo-icon-button')) return
+              toggleFold(workspace.id)
+            },
+            onContextMenu: (event) => {
+              event.preventDefault()
+              openMenu('workspaceMenu', { workspaceId: workspace.id }, event)
+            },
+          },
           h(
             'button',
             {
@@ -1952,8 +1967,8 @@ window.__ModuleLoader__.load({
                 style: { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] },
               })
             : null,
-          h('span', { className: 'dwo-ws-title' }, workspace.title || workspace.path || workspace.id),
-          h('span', { className: 'dwo-ws-count' }, String(rows.length)),
+          h('span', { className: 'dwo-ws-title' }, title),
+          h('span', { className: 'dwo-ws-count' }, `(${count})`),
           h(
             'span',
             { className: 'dwo-ws-actions' },
@@ -1985,13 +2000,15 @@ window.__ModuleLoader__.load({
               React.Fragment,
               null,
               props.subGroups ?? null,
-              h(
-                'div',
-                { className: 'dwo-rows' },
-                rows.length === 0
-                  ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
-                  : rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
-              ),
+              rows.length === 0 && childCount === 0
+                ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
+                : rows.length === 0
+                  ? null
+                  : h(
+                      'div',
+                      { className: 'dwo-rows' },
+                      rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
+                    ),
             ),
       )
     }
@@ -2056,6 +2073,7 @@ window.__ModuleLoader__.load({
             workspace: node.workspace,
             rows,
             depth,
+            childCount: node.children.length,
             subGroups,
           })
         })
@@ -2472,13 +2490,15 @@ window.__ModuleLoader__.load({
 .dwo-ws:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
 .dwo-ws-fold{width:16px;height:20px;padding:0;border:0;background:transparent;color:inherit;font-size:10px;cursor:pointer;opacity:.7;flex:0 0 auto}
 .dwo-ws-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
-.dwo-ws-title{flex:1 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dwo-ws-count{font-size:10.5px;opacity:.5;flex:0 0 auto}
-.dwo-ws-actions{display:flex;align-items:center;gap:1px;flex:0 0 auto;opacity:0;transition:opacity .12s ease}
+.dwo-ws-title{flex:0 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dwo-ws-count{flex:0 0 auto;font-size:10.5px;opacity:.5}
+.dwo-ws-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex:0 0 auto;opacity:0;transition:opacity .12s ease}
 .dwo-srow-actions{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:1px;opacity:0;pointer-events:none;transition:opacity .12s ease}
 .dwo-ws:hover .dwo-ws-actions,.dwo-srow:hover .dwo-srow-actions{opacity:1}
 .dwo-srow:hover .dwo-srow-actions{pointer-events:auto}
 .dwo-srow:hover .dwo-srow-time{opacity:0}
+/* 悬停时给标题右侧留出按钮位置，避免按钮叠在文字上 */
+.dwo-srow:hover .dwo-srow-title{padding-right:56px}
 .dwo-rows{display:flex;flex-direction:column;gap:1px;padding-left:10px}
 .dwo-srow{position:relative;display:flex;align-items:center;gap:6px;min-height:27px;padding:1px 4px 1px 6px;border-radius:6px;cursor:pointer;outline:none}
 .dwo-srow:hover{background:color-mix(in srgb,currentColor 8%,transparent)}

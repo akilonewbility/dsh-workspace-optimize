@@ -951,14 +951,10 @@ window.__ModuleLoader__.load({
         if (Object.prototype.hasOwnProperty.call(patch, 'showBlankSessions')) {
           refreshSidebar().catch(() => {})
         }
-        if (Object.prototype.hasOwnProperty.call(patch, 'sidebarMode')) {
-          if (patch.sidebarMode === 'native') {
-            // 覆盖会移除官方 entry，无法就地撤销：切回官方必须重载页面。
-            setTimeout(() => reloadUi(), 300)
-          } else if (typeof sidebarModeSync === 'function') {
-            // 切回增强侧栏可以直接注册，不需要重载。
-            sidebarModeSync()
-          }
+        if (Object.prototype.hasOwnProperty.call(patch, 'sidebarMode') && typeof sidebarModeSync === 'function') {
+          // 未声明子插槽时，覆盖只是让官方 entry 变为 inactive、仍留在槽位里，
+          // 撤销注册即可原地恢复官方侧栏，因此两个方向都无需重载页面。
+          sidebarModeSync()
         }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)

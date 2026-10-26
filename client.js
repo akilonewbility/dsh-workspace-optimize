@@ -83,7 +83,6 @@ window.__ModuleLoader__.load({
         'notify.error': '会话出错',
         'notify.started': '会话开始运行',
         'toast.saved': '已保存',
-        'toast.deleted': '已删除会话',
         'toast.failed': '操作失败',
         'toast.unchanged': '位置没有变化',
         'toast.orderDone': '已调整顺序；若看不到变化，请把排序切到「手动」',
@@ -144,8 +143,7 @@ window.__ModuleLoader__.load({
         'session.archive': '归档',
         'session.unarchive': '恢复',
         'session.copyId': '复制会话 ID',
-        'session.delete': '删除会话…',
-        'session.deleteConfirm': '永久删除会话「{title}」？日志与索引会被清除，无法撤销。',
+        'session.deleteUnsupported': '官方不支持删除会话，请使用归档。',
         'session.menu': '更多操作',
         'session.color': '设置颜色…',
         'session.move': '移动到工作区…',
@@ -212,7 +210,6 @@ window.__ModuleLoader__.load({
         'notify.error': 'Session error',
         'notify.started': 'Session started',
         'toast.saved': 'Saved',
-        'toast.deleted': 'Session deleted',
         'toast.failed': 'Action failed',
         'toast.unchanged': 'Position unchanged',
         'toast.orderDone': 'Order updated; switch Sort to Manual if you do not see it',
@@ -273,8 +270,7 @@ window.__ModuleLoader__.load({
         'session.archive': 'Archive',
         'session.unarchive': 'Unarchive',
         'session.copyId': 'Copy session ID',
-        'session.delete': 'Delete session…',
-        'session.deleteConfirm': 'Permanently delete session "{title}"? Its log and index entries are removed; this cannot be undone.',
+        'session.deleteUnsupported': 'Session deletion is not supported; use archive instead.',
         'session.menu': 'More actions',
         'session.color': 'Set color…',
         'session.move': 'Move to workspace…',
@@ -837,17 +833,10 @@ window.__ModuleLoader__.load({
     }
 
     async function deleteSession(sessionId, title) {
-      const label = title || sessionId.slice(0, 8)
-      const confirmed =
-        typeof window.confirm === 'function' ? window.confirm(t('session.deleteConfirm', { title: label })) : true
-      if (!confirmed) return
-      try {
-        await apiFetch('delete', { method: 'POST', body: JSON.stringify({ sessionId }) })
-        pushToast(t('toast.deleted'))
-        await refreshSidebar()
-      } catch (error) {
-        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
-      }
+      // 官方没有删除会话的 API（只能归档），此函数仅为兼容旧调用保留占位。
+      void sessionId
+      void title
+      pushToast(t('session.deleteUnsupported'))
     }
 
     async function togglePinned(sessionId) {
@@ -2317,10 +2306,6 @@ window.__ModuleLoader__.load({
         }
         if (session?.archived) items.push({ label: t('session.unarchive'), run: () => { closeDialog(); void unarchiveSession(sessionId) } })
         else items.push({ label: t('session.archive'), run: () => { closeDialog(); void archiveSession(sessionId) } })
-        // 官方没有删除会话的 API，只有 Archive Manager 提供；能力不可用时不显示入口。
-        if (snap.sidebar?.capabilities?.delete === true) {
-          items.push({ label: t('session.delete'), run: () => { closeDialog(); void deleteSession(sessionId, session?.title) } })
-        }
         return items
       }
       if (dialog.kind === 'workspaceMenu') {

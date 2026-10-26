@@ -1591,10 +1591,12 @@ window.__ModuleLoader__.load({
             },
             folded ? '▸' : '▾',
           ),
-          h('span', {
-            className: 'dwo-ws-dot',
-            style: color ? { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] } : undefined,
-          }),
+          color
+            ? h('span', {
+                className: 'dwo-ws-dot',
+                style: { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] },
+              })
+            : null,
           h('span', { className: 'dwo-ws-title' }, workspace.title || workspace.path || workspace.id),
           h('span', { className: 'dwo-ws-count' }, String(rows.length)),
           h(
@@ -1749,6 +1751,40 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'dwo-text-button', onClick: () => void createWorkspace() }, t('sidebar.addWorkspace')),
         ),
       )
+    }
+
+    class SidebarBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { error: null }
+      }
+
+      static getDerivedStateFromError(error) {
+        return { error }
+      }
+
+      componentDidCatch(error) {
+        try {
+          console.error('[workspace-optimize] sidebar crashed', error)
+        } catch {
+          // 控制台不可用时只显示错误文本
+        }
+      }
+
+      render() {
+        if (this.state.error) {
+          return h(
+            'div',
+            { className: 'dwo-sidebar-error' },
+            `侧栏渲染失败：${String(this.state.error && this.state.error.message ? this.state.error.message : this.state.error)}`,
+          )
+        }
+        return this.props.children
+      }
+    }
+
+    function SidebarRoot(props) {
+      return h(SidebarBoundary, null, h(SidebarBrowser, props))
     }
 
     function MenuPopover(props) {
@@ -2077,7 +2113,9 @@ window.__ModuleLoader__.load({
         if (optimized && !disposeBrowser) {
           try {
             disposeBrowser = ctx.slots.inject('sidebar.workspaces', () =>
-              ctx.slots.register({ name: 'sidebar.workspaces', priority: 100 }, SidebarBrowser),
+              // single 槽位按 priority 升序取第一个生效者；官方 occupant 是 0，
+              // 所以覆盖必须用更小的值。
+              ctx.slots.register({ name: 'sidebar.workspaces', priority: -1 }, SidebarRoot),
             )
           } catch (error) {
             try {

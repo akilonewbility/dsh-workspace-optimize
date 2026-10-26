@@ -1064,12 +1064,16 @@ window.__ModuleLoader__.load({
     function showNotification(event) {
       const fallbackName = typeof event.sessionId === 'string' ? event.sessionId.slice(0, 8) : ''
       const isComplete = event.kind === 'complete'
-      // 完成通知：标题固定「会话已完成」，正文第一行会话标题、第二行最终答复。
-      const title = isComplete ? t('notify.complete') : t(`notify.${event.kind}`)
-      const body = isComplete
-        ? [event.title, event.summary].filter((part) => typeof part === 'string' && part.length > 0).join('\n') ||
-          fallbackName
-        : event.title || fallbackName
+      const isWaiting = event.kind === 'waiting'
+      // 完成：会话标题 + 最终答复；等待交互：会话标题 + 所需权限/问题标题。
+      const title = t(`notify.${event.kind}`)
+      const partsForBody = isComplete
+        ? [event.title, event.summary]
+        : isWaiting
+          ? [event.title, event.label]
+          : [event.title]
+      const body =
+        partsForBody.filter((part) => typeof part === 'string' && part.length > 0).join('\n') || fallbackName
       const onClick = () => openSession(event.sessionId)
       const fallback = () => pushToast(`${title}${body ? ` · ${body}` : ''}`)
 

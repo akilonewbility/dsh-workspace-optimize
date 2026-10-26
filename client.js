@@ -580,7 +580,7 @@ window.__ModuleLoader__.load({
       return {
         order: saved.order === 'manual' ? 'manual' : 'updated',
         filter: saved.filter === 'show' || saved.filter === 'only' ? saved.filter : 'hide',
-        groupBy: saved.groupBy === 'tree' ? 'tree' : 'flat',
+        groupBy: saved.groupBy === 'flat' ? 'flat' : 'tree',
         folded: saved.folded && typeof saved.folded === 'object' ? saved.folded : {},
         search: '',
         searchOpen: false,

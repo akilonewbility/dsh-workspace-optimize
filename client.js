@@ -304,6 +304,8 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------------ 状态仓库
 
     const listeners = new Set()
+    /** 完成后的绿灯只闪 2 秒：sessionId -> 过期时间戳。 */
+    const completionFlash = new Map()
     let version = 0
     const cache = { version: -1, value: null }
 
@@ -1103,6 +1105,13 @@ window.__ModuleLoader__.load({
     function onSessionEvent(event) {
       if (!event || typeof event !== 'object') return
       scheduleSidebarRefresh()
+      if (event.kind === 'complete' && typeof event.sessionId === 'string') {
+        completionFlash.set(event.sessionId, Date.now() + 2000)
+        setTimeout(() => {
+          completionFlash.delete(event.sessionId)
+          bump()
+        }, 2100)
+      }
       if (store.settings.enabled === false) return
       const notify = store.settings.notify ?? {}
       if (notify[event.kind] !== true) return
@@ -1815,11 +1824,12 @@ window.__ModuleLoader__.load({
       const completedAt = typeof session.completedAt === 'number' ? session.completedAt : 0
       const seenAt = (store.seenAt && store.seenAt.get(session.id)) || 0
       const pending = typeof session.pending === 'string' ? session.pending : ''
+      const flashing = (completionFlash.get(session.id) ?? 0) > Date.now()
       const dotState = pending
         ? 'pending'
         : session.running
           ? 'running'
-          : completedAt > seenAt
+          : completedAt > seenAt && flashing
             ? 'done'
             : 'idle'
       return h(

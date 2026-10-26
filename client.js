@@ -124,6 +124,10 @@ window.__ModuleLoader__.load({
         'sidebar.pendingApproval': '等待审批',
         'sidebar.pendingQuestion': '等待回答',
         'sidebar.done': '已完成',
+        'favorites.title': '收藏',
+        'favorites.sessions': '收藏的会话',
+        'favorites.workspaces': '收藏的工作区',
+        'favorites.empty': '还没有收藏',
         'sidebar.schedules': '{count} 个定时任务',
         'search.results': '正文命中',
         'view.options': '视图选项',
@@ -255,6 +259,10 @@ window.__ModuleLoader__.load({
         'sidebar.pendingApproval': 'Waiting for approval',
         'sidebar.pendingQuestion': 'Waiting for answer',
         'sidebar.done': 'Done',
+        'favorites.title': 'Favorites',
+        'favorites.sessions': 'Favorite sessions',
+        'favorites.workspaces': 'Favorite workspaces',
+        'favorites.empty': 'No favorites yet',
         'sidebar.schedules': '{count} scheduled task(s)',
         'search.results': 'Content matches',
         'view.options': 'View options',
@@ -1138,11 +1146,11 @@ window.__ModuleLoader__.load({
       if (!event || typeof event !== 'object') return
       scheduleSidebarRefresh()
       if (event.kind === 'complete' && typeof event.sessionId === 'string') {
-        completionFlash.set(event.sessionId, Date.now() + 2000)
+        completionFlash.set(event.sessionId, Date.now() + 5000)
         setTimeout(() => {
           completionFlash.delete(event.sessionId)
           bump()
-        }, 2100)
+        }, 5100)
       }
       if (store.settings.enabled === false) return
       const notify = store.settings.notify ?? {}
@@ -2183,6 +2191,16 @@ window.__ModuleLoader__.load({
             {
               type: 'button',
               className: 'dwo-icon-button',
+              title: t('favorites.title'),
+              onClick: () => openDialog({ kind: 'favorites' }),
+            },
+            '★',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
               title: t('view.options'),
               onClick: (event) => openMenu('viewOptions', {}, event),
             },
@@ -2461,6 +2479,70 @@ window.__ModuleLoader__.load({
       return []
     }
 
+    function FavoritesPanel() {
+      const snap = useSnapshot()
+      const sidebar = snap.sidebar
+      const sessions = Array.isArray(sidebar?.sessions) ? sidebar.sessions : []
+      const favoriteSessions = sessions.filter((session) => snap.favorites.has(session.id))
+      const favoriteWorkspaces = (Array.isArray(sidebar?.workspaces) ? sidebar.workspaces : []).filter((workspace) =>
+        snap.workspaceFavorites.has(workspace.id),
+      )
+
+      return h(
+        DialogShell,
+        { title: t('favorites.title') },
+        favoriteSessions.length === 0 && favoriteWorkspaces.length === 0
+          ? h('p', { className: 'dwo-hint' }, t('favorites.empty'))
+          : h(
+              React.Fragment,
+              null,
+              favoriteSessions.length > 0
+                ? h(
+                    'div',
+                    { className: 'dwo-fav-section' },
+                    h('div', { className: 'dwo-section-title' }, t('favorites.sessions')),
+                    favoriteSessions.map((session) =>
+                      h(
+                        'button',
+                        {
+                          key: session.id,
+                          type: 'button',
+                          className: 'dwo-search-hit',
+                          onClick: () => {
+                            closeDialog()
+                            selectSession(session.id)
+                          },
+                        },
+                        h(
+                          'span',
+                          { className: 'dwo-search-hit-title' },
+                          session.title || baseName(session.cwd) || t('sidebar.untitled'),
+                        ),
+                        session.cwd
+                          ? h('span', { className: 'dwo-search-hit-snippet' }, session.cwd)
+                          : null,
+                      ),
+                    ),
+                  )
+                : null,
+              favoriteWorkspaces.length > 0
+                ? h(
+                    'div',
+                    { className: 'dwo-fav-section' },
+                    h('div', { className: 'dwo-section-title' }, t('favorites.workspaces')),
+                    favoriteWorkspaces.map((workspace) =>
+                      h(
+                        'div',
+                        { key: workspace.id, className: 'dwo-hint' },
+                        workspace.title || workspace.path || workspace.id,
+                      ),
+                    ),
+                  )
+                : null,
+            ),
+      )
+    }
+
     function Surfaces() {
       const snap = useSnapshot()
       const dialog = snap.dialog
@@ -2488,6 +2570,8 @@ window.__ModuleLoader__.load({
             value: dialog.value,
             onSubmit: (value) => void renameWorkspace(dialog.workspaceId, value),
           })
+        } else if (dialog.kind === 'favorites') {
+          surface = h(FavoritesPanel)
         } else if (dialog.kind === 'settings') {
           surface = h(DialogShell, { title: t('settings.title') }, h(SettingsForm))
         }

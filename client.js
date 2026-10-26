@@ -107,6 +107,7 @@ window.__ModuleLoader__.load({
         'sidebar.search': '搜索会话',
         'sidebar.refresh': '刷新',
         'sidebar.rail': '展开侧栏',
+        'sidebar.broken': '日志不可用',
         'view.options': '视图选项',
         'view.order.updated': '最近更新',
         'view.order.manual': '手动',
@@ -215,6 +216,7 @@ window.__ModuleLoader__.load({
         'sidebar.search': 'Search sessions',
         'sidebar.refresh': 'Refresh',
         'sidebar.rail': 'Expand sidebar',
+        'sidebar.broken': 'log unavailable',
         'view.options': 'View options',
         'view.order.updated': 'Last updated',
         'view.order.manual': 'Manual',
@@ -1486,19 +1488,21 @@ window.__ModuleLoader__.load({
       const favorite = snap.favorites.has(session.id)
       const selected = snap.selectedSessionId === session.id
       const archived = session.archived === true
+      // 日志定位不到或为空的会话：不响应打开，避免切到空白新会话。
+      const broken = session.openable === false
       // 冷会话可能没有标题投影；回退到会话目录名，避免整排「未命名」。
       const folder = baseName(session.cwd)
       const label = session.title || folder || t('sidebar.untitled')
       return h(
         'div',
         {
-          className: `dwo-srow${selected ? ' dwo-srow-active' : ''}${archived ? ' dwo-srow-archived' : ''}`,
+          className: `dwo-srow${selected ? ' dwo-srow-active' : ''}${archived ? ' dwo-srow-archived' : ''}${broken ? ' dwo-srow-broken' : ''}`,
           role: 'button',
           tabIndex: 0,
-          title: session.title || session.cwd || label,
-          draggable: !archived,
+          title: broken ? `${label}（${t('sidebar.broken')}）` : session.title || session.cwd || label,
+          draggable: !archived && !broken,
           onDragStart: (event) => {
-            if (archived) return
+            if (archived || broken) return
             dragging = { id: session.id, workspaceId: props.workspaceId }
             try {
               event.dataTransfer.setData('text/plain', session.id)
@@ -1528,10 +1532,10 @@ window.__ModuleLoader__.load({
             dragging = null
           },
           onClick: () => {
-            if (!archived) selectSession(session.id)
+            if (!archived && !broken) selectSession(session.id)
           },
           onKeyDown: (event) => {
-            if (event.key === 'Enter' && !archived) selectSession(session.id)
+            if (event.key === 'Enter' && !archived && !broken) selectSession(session.id)
           },
         },
         h('span', {
@@ -2027,6 +2031,8 @@ window.__ModuleLoader__.load({
 .dwo-srow-active{background:color-mix(in srgb,currentColor 13%,transparent)}
 .dwo-srow-archived{opacity:.55}
 .dwo-srow-archived .dwo-srow-title{text-decoration:line-through}
+.dwo-srow-broken{opacity:.42;cursor:default}
+.dwo-srow-broken .dwo-srow-title{text-decoration:line-through}
 .dwo-srow[data-dwo-drop="before"]{box-shadow:inset 0 2px 0 #60a5fa}
 .dwo-srow[data-dwo-drop="after"]{box-shadow:inset 0 -2px 0 #60a5fa}
 .dwo-srow-dot{width:7px;height:7px;border-radius:50%;border:1px solid color-mix(in srgb,currentColor 26%,transparent);flex:0 0 auto}

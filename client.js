@@ -120,6 +120,7 @@ window.__ModuleLoader__.load({
         'sidebar.rail': '展开侧栏',
         'sidebar.broken': '日志不可用',
         'sidebar.running': '运行中',
+        'sidebar.schedules': '{count} 个定时任务',
         'search.results': '正文命中',
         'view.options': '视图选项',
         'view.group.flat': '平铺分组',
@@ -245,6 +246,7 @@ window.__ModuleLoader__.load({
         'sidebar.rail': 'Expand sidebar',
         'sidebar.broken': 'log unavailable',
         'sidebar.running': 'Running',
+        'sidebar.schedules': '{count} scheduled task(s)',
         'search.results': 'Content matches',
         'view.options': 'View options',
         'view.group.flat': 'Flat groups',
@@ -1722,6 +1724,24 @@ window.__ModuleLoader__.load({
       return parts.length > 0 ? parts[parts.length - 1] : ''
     }
 
+    function ScheduleIcon() {
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 24 24',
+          width: 12,
+          height: 12,
+          'aria-hidden': true,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.8,
+          strokeLinecap: 'round',
+        },
+        h('circle', { cx: 12, cy: 12, r: 8.5 }),
+        h('path', { d: 'M12 7.5V12l3 2' }),
+      )
+    }
+
     function SessionRow(props) {
       const session = props.session
       const snap = useSnapshot()
@@ -1734,8 +1754,17 @@ window.__ModuleLoader__.load({
       // 冷会话可能没有标题投影；回退到会话目录名，避免整排「未命名」。
       const folder = baseName(session.cwd)
       const label = session.title || folder || t('sidebar.untitled')
-      // 官方行前座位（Schedule 的时钟标记等）由本组件声明后重新渲染。
-      const leading = safeRenderSlot('sidebar.session.row.leading', { sessionId: session.id })
+      // 有活跃定时任务时自己画时钟（与官方 Schedule 标记同样的语义）；
+      // 否则渲染官方行前座位（若宿主声明了该子插槽）。
+      const scheduleCount = typeof session.scheduleCount === 'number' ? session.scheduleCount : 0
+      const leading =
+        scheduleCount > 0
+          ? h(
+              'span',
+              { className: 'dwo-schedule-mark', title: t('sidebar.schedules', { count: scheduleCount }) },
+              h(ScheduleIcon),
+            )
+          : safeRenderSlot('sidebar.session.row.leading', { sessionId: session.id })
       return h(
         'div',
         {
@@ -2088,6 +2117,7 @@ window.__ModuleLoader__.load({
               if (!session) return null
               const meta = [
                 session.running ? t('sidebar.running') : '',
+                session.scheduleCount > 0 ? t('sidebar.schedules', { count: session.scheduleCount }) : '',
                 session.archived ? t('sidebar.archived') : '',
                 session.openable === false ? t('sidebar.broken') : '',
               ]
@@ -2422,6 +2452,7 @@ window.__ModuleLoader__.load({
 .dwo-srow-dot{width:7px;height:7px;border-radius:50%;border:1px solid color-mix(in srgb,currentColor 26%,transparent);flex:0 0 auto}
 .dwo-srow-leading{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:inherit;opacity:.75}
 .dwo-srow-leading:empty{display:none}
+.dwo-schedule-mark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:0 0 auto;color:#60a5fa}
 .dwo-srow-dot-running{background:#34d399;border-color:#34d399;animation:dwo-pulse 1.2s ease-in-out infinite}
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

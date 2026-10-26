@@ -133,6 +133,7 @@ window.__ModuleLoader__.load({
         'settings.sidebarMode': '侧栏样式',
         'settings.sidebarMode.optimized': '增强侧栏',
         'settings.sidebarMode.native': '官方侧栏',
+        'settings.showBlankSessions': '显示空白会话（便于清理）',
       },
       en: {
         'fav.add': 'Favorite session',
@@ -242,6 +243,7 @@ window.__ModuleLoader__.load({
         'settings.sidebarMode': 'Sidebar style',
         'settings.sidebarMode.optimized': 'Enhanced sidebar',
         'settings.sidebarMode.native': 'Official sidebar',
+        'settings.showBlankSessions': 'Show blank session drafts',
       },
     }
 
@@ -753,6 +755,9 @@ window.__ModuleLoader__.load({
         const data = await apiFetch('settings', { method: 'POST', body: JSON.stringify(patch) })
         if (data.settings) store.settings = data.settings
         bump()
+        if (Object.prototype.hasOwnProperty.call(patch, 'showBlankSessions')) {
+          refreshSidebar().catch(() => {})
+        }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -1331,6 +1336,7 @@ window.__ModuleLoader__.load({
         ['settings.notify.error', notify.error === true, (value) => updateSettings({ notify: { error: value } })],
         ['settings.notify.started', notify.started === true, (value) => updateSettings({ notify: { started: value } })],
         ['settings.notifyWhenVisible', settings.notifyWhenVisible === true, (value) => updateSettings({ notifyWhenVisible: value })],
+        ['settings.showBlankSessions', settings.showBlankSessions === true, (value) => updateSettings({ showBlankSessions: value })],
         ['settings.dnd', dnd.enabled === true, (value) => updateSettings({ dnd: { enabled: value } })],
       ]
 

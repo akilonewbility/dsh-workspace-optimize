@@ -67,6 +67,17 @@ window.__ModuleLoader__.load({
         'settings.stateFile': '数据文件',
         'settings.moveUnavailable': '未检测到跨工作区移动能力（需要 Archive Manager）',
         'settings.unavailable': '宿主接口不可用，当前只能展示已有状态',
+        'settings.maintenance': '维护',
+        'settings.refreshSidebar': '刷新侧栏数据',
+        'settings.reloadUi': '重新加载界面',
+        'settings.reloadNew': '发现新界面版本，点击重载',
+        'settings.clientRev': '界面版本',
+        'settings.pageRev': '页面',
+        'settings.hostRevLabel': 'Host',
+        'settings.checkVersion': '检查版本',
+        'settings.revUnknown': '未知',
+        'settings.reloadFailed': '无法重载界面',
+        'settings.hostRestartHint': '重载界面只更新浏览器半侧（会丢失未发送的输入）；Host 代码更新需要重启应用。',
         'notify.complete': '会话已完成',
         'notify.waiting': '等待你的确认',
         'notify.error': '会话出错',
@@ -179,6 +190,17 @@ window.__ModuleLoader__.load({
         'settings.stateFile': 'Data file',
         'settings.moveUnavailable': 'Cross-workspace move unavailable (requires Archive Manager)',
         'settings.unavailable': 'Host API unavailable; showing cached state only',
+        'settings.maintenance': 'Maintenance',
+        'settings.refreshSidebar': 'Refresh sidebar data',
+        'settings.reloadUi': 'Reload interface',
+        'settings.reloadNew': 'New interface version — click to reload',
+        'settings.clientRev': 'Interface version',
+        'settings.pageRev': 'Page',
+        'settings.hostRevLabel': 'Host',
+        'settings.checkVersion': 'Check',
+        'settings.revUnknown': 'unknown',
+        'settings.reloadFailed': 'Cannot reload the interface',
+        'settings.hostRestartHint': 'Reloading updates only the browser half (unsent input is lost); Host changes require an app restart.',
         'notify.complete': 'Session finished',
         'notify.waiting': 'Waiting for your confirmation',
         'notify.error': 'Session error',
@@ -295,6 +317,7 @@ window.__ModuleLoader__.load({
       sidebarError: '',
       sidebarLoading: false,
       selectedSessionId: '',
+      clientRev: { page: '', host: '', error: '', checked: false },
     }
 
     function getSnapshot() {
@@ -316,6 +339,7 @@ window.__ModuleLoader__.load({
           sidebarError: store.sidebarError,
           sidebarLoading: store.sidebarLoading,
           selectedSessionId: store.selectedSessionId,
+          clientRev: store.clientRev,
         }
       }
       return cache.value
@@ -437,6 +461,56 @@ window.__ModuleLoader__.load({
           refreshing = null
         })
       return refreshing
+    }
+
+    // ------------------------------------------------------------------ 界面版本
+
+    function pageClientRev() {
+      try {
+        const boot = window.__DSH_BOOT__
+        const entries = Array.isArray(boot?.entries) ? boot.entries : []
+        const entry = entries.find((item) => item && item.id === 'dsh-workspace-optimize')
+        return typeof entry?.rev === 'string' ? entry.rev : ''
+      } catch {
+        return ''
+      }
+    }
+
+    let checkingRev = null
+
+    async function checkClientRev() {
+      if (checkingRev) return checkingRev
+      checkingRev = apiFetch('client-rev')
+        .then((data) => {
+          store.clientRev = {
+            page: pageClientRev(),
+            host: typeof data.rev === 'string' ? data.rev : '',
+            error: data.ok === false ? String(data.error ?? '') : '',
+            checked: true,
+          }
+          return data
+        })
+        .catch((error) => {
+          store.clientRev = {
+            page: pageClientRev(),
+            host: '',
+            error: error instanceof Error ? error.message : String(error),
+            checked: true,
+          }
+        })
+        .finally(() => {
+          checkingRev = null
+          bump()
+        })
+      return checkingRev
+    }
+
+    function reloadUi() {
+      try {
+        window.location.reload()
+      } catch {
+        pushToast(t('settings.reloadFailed'))
+      }
     }
 
     // ------------------------------------------------------------------ 自绘侧栏数据
@@ -1338,6 +1412,12 @@ window.__ModuleLoader__.load({
       const dnd = settings.dnd ?? {}
       const permission = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
       const favoritesSource = snap.capabilities?.favoritesFromArchiveManager === true ? 'archive' : 'local'
+      const rev = snap.clientRev ?? { page: '', host: '', error: '', checked: false }
+      const outdated = rev.checked && rev.page.length > 0 && rev.host.length > 0 && rev.page !== rev.host
+
+      React.useEffect(() => {
+        if (!store.clientRev.checked) checkClientRev()
+      }, [])
 
       const rows = [
         ['settings.enabled', settings.enabled !== false, (value) => updateSettings({ enabled: value })],
@@ -1434,6 +1514,35 @@ window.__ModuleLoader__.load({
         h('p', { className: 'dwo-hint' }, t(favoritesSource === 'archive' ? 'settings.favoritesSource.archive' : 'settings.favoritesSource.local')),
         snap.capabilities?.move === true ? null : h('p', { className: 'dwo-hint dwo-warning' }, t('settings.moveUnavailable')),
         snap.stateFile ? h('p', { className: 'dwo-hint' }, `${t('settings.stateFile')}：${snap.stateFile}`) : null,
+        h('div', { className: 'dwo-section-title' }, t('settings.maintenance')),
+        h(
+          'div',
+          { className: 'dwo-setting-row' },
+          h('span', { className: 'dwo-setting-label' }, t('settings.refreshSidebar')),
+          h('button', { type: 'button', className: 'dwo-button', onClick: () => void refreshSidebar() }, t('settings.refreshSidebar')),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: `dwo-button${outdated ? ' dwo-button-primary' : ''}`,
+              onClick: () => reloadUi(),
+            },
+            outdated ? t('settings.reloadNew') : t('settings.reloadUi'),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'dwo-setting-row' },
+          h('span', { className: 'dwo-setting-label' }, t('settings.clientRev')),
+          h(
+            'span',
+            { className: 'dwo-hint' },
+            `${t('settings.pageRev')} ${rev.page || t('settings.revUnknown')} · ${t('settings.hostRevLabel')} ${rev.host || rev.error || t('settings.revUnknown')}`,
+          ),
+          h('button', { type: 'button', className: 'dwo-button', onClick: () => void checkClientRev() }, t('settings.checkVersion')),
+        ),
+        outdated ? h('p', { className: 'dwo-hint dwo-warning' }, t('settings.reloadNew')) : null,
+        h('p', { className: 'dwo-hint' }, t('settings.hostRestartHint')),
       )
     }
 
@@ -2055,6 +2164,8 @@ window.__ModuleLoader__.load({
 .dwo-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:0 12px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer}
 .dwo-button:hover:not(:disabled){background:color-mix(in srgb,currentColor 10%,transparent)}
 .dwo-button:disabled{opacity:.5;cursor:not-allowed}
+.dwo-button-primary{background:#2f6fed;border-color:transparent;color:#fff}
+.dwo-section-title{margin-top:10px;padding-top:10px;border-top:1px solid color-mix(in srgb,currentColor 10%,transparent);font-size:12px;font-weight:600;opacity:.75}
 .dwo-button-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .dwo-hint{margin:0;font-size:11.5px;line-height:18px;opacity:.66}
 .dwo-warning{color:#f59e0b;opacity:.9}

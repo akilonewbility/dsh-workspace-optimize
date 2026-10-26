@@ -119,6 +119,7 @@ window.__ModuleLoader__.load({
         'sidebar.refresh': '刷新',
         'sidebar.rail': '展开侧栏',
         'sidebar.broken': '日志不可用',
+        'search.results': '正文命中',
         'view.options': '视图选项',
         'view.group.flat': '平铺分组',
         'view.group.tree': '工作区树',
@@ -242,6 +243,7 @@ window.__ModuleLoader__.load({
         'sidebar.refresh': 'Refresh',
         'sidebar.rail': 'Expand sidebar',
         'sidebar.broken': 'log unavailable',
+        'search.results': 'Content matches',
         'view.options': 'View options',
         'view.group.flat': 'Flat groups',
         'view.group.tree': 'Workspace tree',
@@ -318,6 +320,7 @@ window.__ModuleLoader__.load({
       sidebarLoading: false,
       selectedSessionId: '',
       clientRev: { page: '', host: '', error: '', checked: false },
+      search: null,
     }
 
     function getSnapshot() {
@@ -340,6 +343,7 @@ window.__ModuleLoader__.load({
           sidebarLoading: store.sidebarLoading,
           selectedSessionId: store.selectedSessionId,
           clientRev: store.clientRev,
+          search: store.search,
         }
       }
       return cache.value
@@ -540,6 +544,74 @@ window.__ModuleLoader__.load({
           bump()
         })
       return refreshingSidebar
+    }
+
+    // ------------------------------------------------------------------ 正文搜索
+
+    let searchTimer = null
+    let searchAbort = null
+    let searchSeq = 0
+
+    function readString(...values) {
+      for (const value of values) if (typeof value === 'string' && value.length > 0) return value
+      return ''
+    }
+
+    function normalizeSearchHit(item) {
+      if (!item || typeof item !== 'object') return null
+      const id = item.sessionId ?? item.id
+      if (typeof id !== 'string' || id.length === 0) return null
+      return {
+        id,
+        title: readString(item.title, item.displayTitle, item.sessionTitle),
+        snippet: readString(item.snippet, item.excerpt, item.preview, item.text),
+      }
+    }
+
+    async function runSearch(query) {
+      const trimmed = String(query || '').trim()
+      const sessions = pluginCtx?.get?.('sessions')
+      if (!trimmed || !sessions || typeof sessions.search !== 'function') {
+        store.search = trimmed ? { query: trimmed, items: [], error: '' } : null
+        bump()
+        return
+      }
+      const seq = ++searchSeq
+      if (searchAbort) {
+        try {
+          searchAbort.abort()
+        } catch {
+          // 旧请求已结束
+        }
+      }
+      searchAbort = new AbortController()
+      try {
+        const result = await sessions.search(trimmed, searchAbort.signal)
+        if (seq !== searchSeq) return
+        const items = Array.isArray(result?.items)
+          ? result.items
+          : Array.isArray(result?.value?.items)
+            ? result.value.items
+            : []
+        store.search = {
+          query: trimmed,
+          items: items.map(normalizeSearchHit).filter(Boolean).slice(0, 30),
+          error: '',
+        }
+      } catch (error) {
+        if (seq !== searchSeq) return
+        if (error && error.name === 'AbortError') return
+        store.search = { query: trimmed, items: [], error: error instanceof Error ? error.message : String(error) }
+      }
+      bump()
+    }
+
+    function scheduleSearch(query) {
+      if (searchTimer) clearTimeout(searchTimer)
+      searchTimer = setTimeout(() => {
+        searchTimer = null
+        void runSearch(query)
+      }, 300)
     }
 
     let sidebarRefreshTimer = null
@@ -1918,8 +1990,31 @@ window.__ModuleLoader__.load({
           onChange: (event) => {
             view.search = event.target.value
             bump()
+            scheduleSearch(event.target.value)
           },
         }),
+        snap.search && snap.search.query === view.search.trim() && snap.search.items.length > 0
+          ? h(
+              'div',
+              { className: 'dwo-search-results' },
+              h('div', { className: 'dwo-search-heading' }, `${t('search.results')} ${snap.search.items.length}`),
+              snap.search.items.map((hit) =>
+                h(
+                  'button',
+                  {
+                    key: hit.id,
+                    type: 'button',
+                    className: 'dwo-search-hit',
+                    title: hit.snippet || hit.id,
+                    onClick: () => selectSession(hit.id),
+                  },
+                  h('span', { className: 'dwo-search-hit-title' }, hit.title || hit.snippet || hit.id.slice(0, 8)),
+                  hit.snippet ? h('span', { className: 'dwo-search-hit-snippet' }, hit.snippet) : null,
+                ),
+              ),
+            )
+          : null,
+        snap.search && snap.search.error ? h('div', { className: 'dwo-sidebar-error' }, snap.search.error) : null,
         snap.sidebarError
           ? h('div', { className: 'dwo-sidebar-error' }, snap.sidebarError)
           : null,
@@ -2194,6 +2289,12 @@ window.__ModuleLoader__.load({
 .dwo-search{width:100%;box-sizing:border-box;margin:0 4px;padding:4px 8px;border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:7px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;font:inherit;font-size:12px;outline:none}
 .dwo-search:focus{border-color:color-mix(in srgb,currentColor 32%,transparent)}
 .dwo-sidebar-error{margin:0 6px;padding:5px 8px;border-radius:6px;background:color-mix(in srgb,#f59e0b 16%,transparent);font-size:11px;line-height:15px;word-break:break-word}
+.dwo-search-results{display:flex;flex-direction:column;gap:1px;margin:2px 4px 4px;padding:4px;border-radius:8px;background:color-mix(in srgb,currentColor 5%,transparent);max-height:240px;overflow:auto}
+.dwo-search-heading{font-size:10.5px;opacity:.5;padding:2px 4px 4px}
+.dwo-search-hit{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.dwo-search-hit:hover{background:color-mix(in srgb,currentColor 9%,transparent)}
+.dwo-search-hit-title{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.dwo-search-hit-snippet{font-size:10.5px;opacity:.55;line-height:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .dwo-groups{display:flex;flex-direction:column;gap:2px;overflow:auto;flex:1 1 auto;min-height:0;padding:0 2px}
 .dwo-group{display:flex;flex-direction:column;gap:1px}
 .dwo-ws{display:flex;align-items:center;gap:4px;min-height:26px;padding:1px 4px;border-radius:6px}

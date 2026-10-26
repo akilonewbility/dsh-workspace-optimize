@@ -308,7 +308,7 @@ window.__ModuleLoader__.load({
       workspaceFavorites: new Set(),
       settings: {
         enabled: true,
-        sidebarMode: 'optimized',
+        sidebarMode: 'native',
         notify: { complete: true, waiting: true, error: true, started: false },
         notifyWhenVisible: false,
         dnd: { enabled: false, start: '23:00', end: '08:00' },
@@ -948,6 +948,10 @@ window.__ModuleLoader__.load({
         bump()
         if (Object.prototype.hasOwnProperty.call(patch, 'showBlankSessions')) {
           refreshSidebar().catch(() => {})
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'sidebarMode')) {
+          // 覆盖会移除官方 entry，无法就地撤销：切换后重载页面让其重新注册。
+          setTimeout(() => reloadUi(), 500)
         }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
@@ -2538,7 +2542,8 @@ window.__ModuleLoader__.load({
         }
       }
       sidebarModeSync = syncSidebarMode
-      syncSidebarMode()
+      // 不在 apply 时预注册：single 槽位的覆盖会移除官方 entry，不可撤销。
+      // 只有 /state 明确返回 optimized 后才由 adoptState 触发注册。
       disposers.push(() => {
         if (disposeBrowser) {
           try {

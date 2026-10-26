@@ -33,11 +33,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-github-name/dsh-workspace-optimize.git"
+    "url": "git+https://github.com/akilonewbility/dsh-workspace-optimize.git"
   },
-  "homepage": "https://github.com/your-github-name/dsh-workspace-optimize#readme",
+  "homepage": "https://github.com/akilonewbility/dsh-workspace-optimize#readme",
   "bugs": {
-    "url": "https://github.com/your-github-name/dsh-workspace-optimize/issues"
+    "url": "https://github.com/akilonewbility/dsh-workspace-optimize/issues"
   },
   "engines": {
     "node": ">=22",

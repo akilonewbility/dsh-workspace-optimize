@@ -1473,6 +1473,12 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function baseName(path) {
+      if (typeof path !== 'string' || path.length === 0) return ''
+      const parts = path.split(/[\\/]+/).filter(Boolean)
+      return parts.length > 0 ? parts[parts.length - 1] : ''
+    }
+
     function SessionRow(props) {
       const session = props.session
       const snap = useSnapshot()
@@ -1480,14 +1486,16 @@ window.__ModuleLoader__.load({
       const favorite = snap.favorites.has(session.id)
       const selected = snap.selectedSessionId === session.id
       const archived = session.archived === true
-      const label = session.title || t('sidebar.untitled')
+      // 冷会话可能没有标题投影；回退到会话目录名，避免整排「未命名」。
+      const folder = baseName(session.cwd)
+      const label = session.title || folder || t('sidebar.untitled')
       return h(
         'div',
         {
           className: `dwo-srow${selected ? ' dwo-srow-active' : ''}${archived ? ' dwo-srow-archived' : ''}`,
           role: 'button',
           tabIndex: 0,
-          title: label,
+          title: session.title || session.cwd || label,
           draggable: !archived,
           onDragStart: (event) => {
             if (archived) return

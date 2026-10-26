@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
         'settings.checkVersion': '检查版本',
         'settings.revUnknown': '未知',
         'settings.reloadFailed': '无法重载界面',
+        'settings.reloadSameRev': '宿主还没有新的界面版本，重载不会生效；刚修改过插件请重启应用。',
         'settings.hostRestartHint': '重载界面只更新浏览器半侧（会丢失未发送的输入）；Host 代码更新需要重启应用。',
         'notify.complete': '会话已完成',
         'notify.waiting': '等待你的确认',
@@ -207,6 +208,7 @@ window.__ModuleLoader__.load({
         'settings.checkVersion': 'Check',
         'settings.revUnknown': 'unknown',
         'settings.reloadFailed': 'Cannot reload the interface',
+        'settings.reloadSameRev': 'The host has no new interface version yet; restart the app after changing the plugin.',
         'settings.hostRestartHint': 'Reloading updates only the browser half (unsent input is lost); Host changes require an app restart.',
         'notify.complete': 'Session finished',
         'notify.waiting': 'Waiting for your confirmation',
@@ -526,7 +528,20 @@ window.__ModuleLoader__.load({
       return checkingRev
     }
 
-    function reloadUi() {
+    async function reloadUi() {
+      // 先确认 Host 已经重建出新的界面 bundle；版本一致时重载只会拿到同一份旧代码，
+      // 且在宿主重建过程中重载会因 bundle rev 不匹配导致 import 失败。
+      try {
+        const data = await apiFetch('client-rev')
+        const pageRev = pageClientRev()
+        const hostRev = typeof data.rev === 'string' ? data.rev : ''
+        if (pageRev && hostRev && pageRev === hostRev) {
+          pushToast(t('settings.reloadSameRev'))
+          return
+        }
+      } catch {
+        // 拿不到版本时按原行为尝试重载
+      }
       // 先主动断开 SSE，减少页面重载后宿主侧的残留连接（避免 409/报错）。
       try {
         disconnectChannel()

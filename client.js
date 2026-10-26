@@ -119,6 +119,7 @@ window.__ModuleLoader__.load({
         'sidebar.refresh': '刷新',
         'sidebar.rail': '展开侧栏',
         'sidebar.broken': '日志不可用',
+        'sidebar.running': '运行中',
         'search.results': '正文命中',
         'view.options': '视图选项',
         'view.group.flat': '平铺分组',
@@ -243,6 +244,7 @@ window.__ModuleLoader__.load({
         'sidebar.refresh': 'Refresh',
         'sidebar.rail': 'Expand sidebar',
         'sidebar.broken': 'log unavailable',
+        'sidebar.running': 'Running',
         'search.results': 'Content matches',
         'view.options': 'View options',
         'view.group.flat': 'Flat groups',
@@ -321,6 +323,7 @@ window.__ModuleLoader__.load({
       selectedSessionId: '',
       clientRev: { page: '', host: '', error: '', checked: false },
       search: null,
+      hover: null,
     }
 
     function getSnapshot() {
@@ -344,6 +347,7 @@ window.__ModuleLoader__.load({
           selectedSessionId: store.selectedSessionId,
           clientRev: store.clientRev,
           search: store.search,
+          hover: store.hover,
         }
       }
       return cache.value
@@ -694,6 +698,37 @@ window.__ModuleLoader__.load({
     function setArchivedFilter(filter) {
       view.filter = filter === 'show' || filter === 'only' ? filter : 'hide'
       persistView()
+    }
+
+    let hoverTimer = null
+
+    function scheduleHover(sessionId, element) {
+      if (hoverTimer) clearTimeout(hoverTimer)
+      hoverTimer = setTimeout(() => {
+        hoverTimer = null
+        let x = 260
+        let y = 140
+        try {
+          const rect = element.getBoundingClientRect()
+          x = Math.min(rect.right + 8, Math.max(8, (window.innerWidth || 1024) - 300))
+          y = Math.min(rect.top, Math.max(8, (window.innerHeight || 768) - 210))
+        } catch {
+          // 使用默认位置
+        }
+        store.hover = { sessionId, x, y }
+        bump()
+      }, 450)
+    }
+
+    function hideHover() {
+      if (hoverTimer) {
+        clearTimeout(hoverTimer)
+        hoverTimer = null
+      }
+      if (store.hover) {
+        store.hover = null
+        bump()
+      }
     }
 
     function selectSession(sessionId) {
@@ -1697,6 +1732,8 @@ window.__ModuleLoader__.load({
           role: 'button',
           tabIndex: 0,
           title: broken ? `${label}（${t('sidebar.broken')}）` : session.title || session.cwd || label,
+          onMouseEnter: (event) => scheduleHover(session.id, event.currentTarget),
+          onMouseLeave: hideHover,
           draggable: !archived && !broken,
           onDragStart: (event) => {
             if (archived || broken) return
@@ -2033,6 +2070,33 @@ window.__ModuleLoader__.load({
           { className: 'dwo-sidebar-foot' },
           h('button', { type: 'button', className: 'dwo-text-button', onClick: () => void createWorkspace() }, t('sidebar.addWorkspace')),
         ),
+        snap.hover
+          ? (() => {
+              const session = byId.get(snap.hover.sessionId)
+              if (!session) return null
+              const meta = [
+                session.running ? t('sidebar.running') : '',
+                session.archived ? t('sidebar.archived') : '',
+                session.openable === false ? t('sidebar.broken') : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+              return h(
+                'div',
+                { className: 'dwo-hovercard', style: { left: `${snap.hover.x}px`, top: `${snap.hover.y}px` } },
+                h(
+                  'div',
+                  { className: 'dwo-hovercard-title' },
+                  session.title || baseName(session.cwd) || t('sidebar.untitled'),
+                ),
+                session.cwd ? h('div', { className: 'dwo-hovercard-meta' }, session.cwd) : null,
+                meta ? h('div', { className: 'dwo-hovercard-meta' }, meta) : null,
+                session.updatedAt
+                  ? h('div', { className: 'dwo-hovercard-meta' }, new Date(session.updatedAt).toLocaleString())
+                  : null,
+              )
+            })()
+          : null,
       )
     }
 
@@ -2295,6 +2359,9 @@ window.__ModuleLoader__.load({
 .dwo-search-hit:hover{background:color-mix(in srgb,currentColor 9%,transparent)}
 .dwo-search-hit-title{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .dwo-search-hit-snippet{font-size:10.5px;opacity:.55;line-height:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dwo-hovercard{position:fixed;z-index:2147481900;width:280px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-elevated,#20242e);color:var(--dsw-alias-label-primary,#e8eaf0);border:1px solid color-mix(in srgb,currentColor 14%,transparent);box-shadow:0 14px 34px rgba(0,0,0,.4);pointer-events:none;font-size:12px;line-height:17px}
+.dwo-hovercard-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dwo-hovercard-meta{font-size:11px;opacity:.62;word-break:break-all}
 .dwo-groups{display:flex;flex-direction:column;gap:2px;overflow:auto;flex:1 1 auto;min-height:0;padding:0 2px}
 .dwo-group{display:flex;flex-direction:column;gap:1px}
 .dwo-ws{display:flex;align-items:center;gap:4px;min-height:26px;padding:1px 4px;border-radius:6px}

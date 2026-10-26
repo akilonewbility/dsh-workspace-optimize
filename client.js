@@ -763,13 +763,28 @@ window.__ModuleLoader__.load({
       pushToast(t('sidebar.openFailed'))
     }
 
+    /** 归档/恢复后先本地更新，让列表立刻按当前过滤隐藏或出现，再后台刷新校正。 */
+    function applyArchivedLocally(sessionId, archived) {
+      const sidebar = store.sidebar
+      if (!sidebar || !Array.isArray(sidebar.sessions)) return
+      const sessions = sidebar.sessions.map((session) =>
+        session.id === sessionId ? { ...session, archived } : session,
+      )
+      const archivedIds = new Set(Array.isArray(sidebar.archivedSessionIds) ? sidebar.archivedSessionIds : [])
+      if (archived) archivedIds.add(sessionId)
+      else archivedIds.delete(sessionId)
+      store.sidebar = { ...sidebar, sessions, archivedSessionIds: [...archivedIds] }
+      bump()
+    }
+
     async function archiveSession(sessionId) {
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.archiveSession !== 'function') return
       try {
         await workspaces.archiveSession(sessionId, { stopActivity: false })
+        applyArchivedLocally(sessionId, true)
         pushToast(t('sidebar.archived'))
-        await refreshSidebar()
+        void refreshSidebar()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -780,7 +795,8 @@ window.__ModuleLoader__.load({
       if (!workspaces || typeof workspaces.unarchiveSession !== 'function') return
       try {
         await workspaces.unarchiveSession(sessionId)
-        await refreshSidebar()
+        applyArchivedLocally(sessionId, false)
+        void refreshSidebar()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }

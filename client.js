@@ -325,6 +325,7 @@ window.__ModuleLoader__.load({
       sidebarError: '',
       sidebarLoading: false,
       selectedSessionId: '',
+      seenAt: new Map(),
       clientRev: { page: '', host: '', error: '', checked: false },
       search: null,
       hover: null,
@@ -629,7 +630,7 @@ window.__ModuleLoader__.load({
       sidebarRefreshTimer = setTimeout(() => {
         sidebarRefreshTimer = null
         if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
-      }, 800)
+      }, 300)
     }
 
     let sidebarModeSync = null
@@ -737,6 +738,8 @@ window.__ModuleLoader__.load({
 
     function selectSession(sessionId) {
       store.selectedSessionId = sessionId
+      // 打开会话即视为已查看，清掉「完成未查看」绿点
+      store.seenAt.set(sessionId, Date.now())
       bump()
       const ui = pluginCtx?.get?.('uiWorkspace')
       if (ui && typeof ui.openSession === 'function') {
@@ -1786,6 +1789,10 @@ window.__ModuleLoader__.load({
               h(ScheduleIcon),
             )
           : safeRenderSlot('sidebar.session.row.leading', { sessionId: session.id })
+      // 状态点：运行中蓝色呼吸；完成但未查看绿色常亮；其余为默认空心点。
+      const completedAt = typeof session.completedAt === 'number' ? session.completedAt : 0
+      const seenAt = (store.seenAt && store.seenAt.get(session.id)) || 0
+      const dotState = session.running ? 'running' : completedAt > seenAt ? 'done' : 'idle'
       return h(
         'div',
         {
@@ -1835,11 +1842,9 @@ window.__ModuleLoader__.load({
         },
         h('span', { className: 'dwo-srow-leading' }, leading),
         h('span', {
-          className: `dwo-srow-dot${session.running ? ' dwo-srow-dot-running' : ''}`,
-          style: color ? { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] } : undefined,
+          className: `dwo-srow-dot${dotState === 'running' ? ' dwo-srow-dot-running' : dotState === 'done' ? ' dwo-srow-dot-done' : ''}`,
         }),
-        h('span', { className: 'dwo-srow-title' }, label),
-        session.running ? h('span', { className: 'dwo-srow-running' }) : null,
+        h('span', { className: 'dwo-srow-title', style: color ? { color: COLOR_HEX[color] } : undefined }, label),
         h('span', { className: 'dwo-srow-time' }, formatRelative(session.updatedAt)),
         h(
           'span',
@@ -2474,7 +2479,8 @@ window.__ModuleLoader__.load({
 .dwo-srow-leading{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:inherit;opacity:.75}
 .dwo-srow-leading:empty{display:none}
 .dwo-schedule-mark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:0 0 auto;color:#60a5fa}
-.dwo-srow-dot-running{background:#34d399;border-color:#34d399;animation:dwo-pulse 1.2s ease-in-out infinite}
+.dwo-srow-dot-running{background:#60a5fa;border-color:#60a5fa;animation:dwo-pulse 1.2s ease-in-out infinite}
+.dwo-srow-dot-done{background:#34d399;border-color:#34d399}
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-srow-time{font-size:10.5px;opacity:.45;flex:0 0 auto}

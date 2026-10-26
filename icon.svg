@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Workspace Optimize">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#1f2937"/>
+  <path d="M32 14l5.3 11.2 12.2 1.7-8.9 8.6 2.2 12.2L32 42l-10.8 5.7 2.2-12.2-8.9-8.6 12.2-1.7z" fill="#f5c542"/>
+  <circle cx="16" cy="20" r="3.4" fill="#f87171"/>
+  <circle cx="48" cy="20" r="3.4" fill="#34d399"/>
+  <circle cx="32" cy="55" r="3.4" fill="#60a5fa"/>
+</svg>

@@ -83,6 +83,7 @@ window.__ModuleLoader__.load({
         'toast.permissionDenied': '通知权限被拒绝，将改为页面内提示',
         'common.close': '关闭',
         'common.cancel': '取消',
+        'common.ok': '确定',
         'color.name.red': '红',
         'color.name.orange': '橙',
         'color.name.amber': '黄',
@@ -93,6 +94,44 @@ window.__ModuleLoader__.load({
         'color.name.pink': '粉',
         'color.name.gray': '灰',
         'priority.value': '优先级 {value}',
+        'sidebar.title': '会话',
+        'sidebar.newSession': '新建会话',
+        'sidebar.addWorkspace': '添加工作区',
+        'sidebar.addUnavailable': '当前环境不支持添加工作区',
+        'sidebar.openFailed': '无法打开会话',
+        'sidebar.archived': '已归档',
+        'sidebar.copied': '已复制会话 ID',
+        'sidebar.empty': '还没有会话',
+        'sidebar.loading': '正在加载…',
+        'sidebar.untitled': '未命名',
+        'sidebar.search': '搜索会话',
+        'sidebar.refresh': '刷新',
+        'sidebar.rail': '展开侧栏',
+        'view.options': '视图选项',
+        'view.order.updated': '最近更新',
+        'view.order.manual': '手动',
+        'view.filter.hide': '隐藏已归档',
+        'view.filter.show': '全部会话',
+        'view.filter.only': '仅已归档',
+        'ws.favorite': '收藏工作区',
+        'ws.unfavorite': '取消收藏工作区',
+        'ws.newSession': '在此新建会话',
+        'ws.rename': '重命名工作区',
+        'ws.color': '工作区颜色…',
+        'ws.renamePrompt': '新的工作区名称',
+        'session.rename': '重命名会话',
+        'session.renamePrompt': '新的会话标题',
+        'session.pin': '置顶',
+        'session.unpin': '取消置顶',
+        'session.archive': '归档',
+        'session.unarchive': '恢复',
+        'session.copyId': '复制会话 ID',
+        'session.menu': '更多操作',
+        'session.color': '设置颜色…',
+        'session.move': '移动到工作区…',
+        'settings.sidebarMode': '侧栏样式',
+        'settings.sidebarMode.optimized': '增强侧栏',
+        'settings.sidebarMode.native': '官方侧栏',
       },
       en: {
         'fav.add': 'Favorite session',
@@ -152,6 +191,7 @@ window.__ModuleLoader__.load({
         'toast.permissionDenied': 'Notification permission denied; falling back to in-page toasts',
         'common.close': 'Close',
         'common.cancel': 'Cancel',
+        'common.ok': 'OK',
         'color.name.red': 'Red',
         'color.name.orange': 'Orange',
         'color.name.amber': 'Amber',
@@ -162,6 +202,44 @@ window.__ModuleLoader__.load({
         'color.name.pink': 'Pink',
         'color.name.gray': 'Gray',
         'priority.value': 'Priority {value}',
+        'sidebar.title': 'Sessions',
+        'sidebar.newSession': 'New session',
+        'sidebar.addWorkspace': 'Add workspace',
+        'sidebar.addUnavailable': 'Adding a workspace is unavailable here',
+        'sidebar.openFailed': 'Cannot open the session',
+        'sidebar.archived': 'Archived',
+        'sidebar.copied': 'Session ID copied',
+        'sidebar.empty': 'No sessions yet',
+        'sidebar.loading': 'Loading…',
+        'sidebar.untitled': 'Untitled',
+        'sidebar.search': 'Search sessions',
+        'sidebar.refresh': 'Refresh',
+        'sidebar.rail': 'Expand sidebar',
+        'view.options': 'View options',
+        'view.order.updated': 'Last updated',
+        'view.order.manual': 'Manual',
+        'view.filter.hide': 'Hide archived',
+        'view.filter.show': 'All conversations',
+        'view.filter.only': 'Archived only',
+        'ws.favorite': 'Favorite workspace',
+        'ws.unfavorite': 'Remove workspace favorite',
+        'ws.newSession': 'New session here',
+        'ws.rename': 'Rename workspace',
+        'ws.color': 'Workspace color…',
+        'ws.renamePrompt': 'New workspace name',
+        'session.rename': 'Rename session',
+        'session.renamePrompt': 'New session title',
+        'session.pin': 'Pin',
+        'session.unpin': 'Unpin',
+        'session.archive': 'Archive',
+        'session.unarchive': 'Unarchive',
+        'session.copyId': 'Copy session ID',
+        'session.menu': 'More actions',
+        'session.color': 'Set color…',
+        'session.move': 'Move to workspace…',
+        'settings.sidebarMode': 'Sidebar style',
+        'settings.sidebarMode.optimized': 'Enhanced sidebar',
+        'settings.sidebarMode.native': 'Official sidebar',
       },
     }
 
@@ -193,8 +271,10 @@ window.__ModuleLoader__.load({
       colors: {},
       priorities: {},
       favorites: new Set(),
+      workspaceFavorites: new Set(),
       settings: {
         enabled: true,
+        sidebarMode: 'optimized',
         notify: { complete: true, waiting: true, error: true, started: false },
         notifyWhenVisible: false,
         dnd: { enabled: false, start: '23:00', end: '08:00' },
@@ -203,6 +283,10 @@ window.__ModuleLoader__.load({
       stateFile: '',
       dialog: null,
       toast: null,
+      sidebar: null,
+      sidebarError: '',
+      sidebarLoading: false,
+      selectedSessionId: '',
     }
 
     function getSnapshot() {
@@ -214,11 +298,16 @@ window.__ModuleLoader__.load({
           colors: store.colors,
           priorities: store.priorities,
           favorites: store.favorites,
+          workspaceFavorites: store.workspaceFavorites,
           settings: store.settings,
           capabilities: store.capabilities,
           stateFile: store.stateFile,
           dialog: store.dialog,
           toast: store.toast,
+          sidebar: store.sidebar,
+          sidebarError: store.sidebarError,
+          sidebarLoading: store.sidebarLoading,
+          selectedSessionId: store.selectedSessionId,
         }
       }
       return cache.value
@@ -316,11 +405,14 @@ window.__ModuleLoader__.load({
       store.colors = data.colors && typeof data.colors === 'object' ? data.colors : {}
       store.priorities = data.priorities && typeof data.priorities === 'object' ? data.priorities : {}
       store.favorites = new Set(Array.isArray(data.favorites) ? data.favorites : [])
+      store.workspaceFavorites = new Set(Array.isArray(data.workspaceFavorites) ? data.workspaceFavorites : [])
       if (data.settings && typeof data.settings === 'object') store.settings = data.settings
       store.capabilities = data.capabilities && typeof data.capabilities === 'object' ? data.capabilities : {}
       store.stateFile = typeof data.stateFile === 'string' ? data.stateFile : ''
       store.revision = typeof data.revision === 'number' ? data.revision : store.revision
       store.ready = true
+      if (typeof sidebarModeSync === 'function') sidebarModeSync()
+      if (store.sidebar === null) refreshSidebar().catch(() => {})
       bump()
     }
 
@@ -337,6 +429,238 @@ window.__ModuleLoader__.load({
           refreshing = null
         })
       return refreshing
+    }
+
+    // ------------------------------------------------------------------ 自绘侧栏数据
+
+    let refreshingSidebar = null
+
+    async function refreshSidebar() {
+      if (refreshingSidebar) return refreshingSidebar
+      store.sidebarLoading = true
+      bump()
+      refreshingSidebar = apiFetch('sidebar')
+        .then((data) => {
+          if (data && data.ok !== false) {
+            store.sidebar = data
+            store.sidebarError = ''
+          } else {
+            store.sidebarError = (data && data.error) || '侧栏数据无效'
+          }
+          return data
+        })
+        .catch((error) => {
+          store.sidebarError = error instanceof Error ? error.message : String(error)
+        })
+        .finally(() => {
+          store.sidebarLoading = false
+          refreshingSidebar = null
+          bump()
+        })
+      return refreshingSidebar
+    }
+
+    let sidebarRefreshTimer = null
+
+    function scheduleSidebarRefresh() {
+      if (sidebarRefreshTimer) return
+      sidebarRefreshTimer = setTimeout(() => {
+        sidebarRefreshTimer = null
+        if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
+      }, 800)
+    }
+
+    let sidebarModeSync = null
+
+    async function toggleWorkspaceFavorite(workspaceId) {
+      const favorite = !store.workspaceFavorites.has(workspaceId)
+      try {
+        const data = await apiFetch('workspace', {
+          method: 'POST',
+          body: JSON.stringify({ workspaceId, favorite }),
+        })
+        store.workspaceFavorites = new Set(Array.isArray(data.workspaceFavorites) ? data.workspaceFavorites : [])
+        bump()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    const VIEW_KEY = 'dwo.sidebar.view'
+
+    function loadView() {
+      let saved = {}
+      try {
+        saved = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}') || {}
+      } catch {
+        saved = {}
+      }
+      return {
+        order: saved.order === 'manual' ? 'manual' : 'updated',
+        filter: saved.filter === 'show' || saved.filter === 'only' ? saved.filter : 'hide',
+        folded: saved.folded && typeof saved.folded === 'object' ? saved.folded : {},
+        search: '',
+        searchOpen: false,
+      }
+    }
+
+    const view = loadView()
+
+    function persistView() {
+      try {
+        localStorage.setItem(
+          VIEW_KEY,
+          JSON.stringify({ order: view.order, filter: view.filter, folded: view.folded }),
+        )
+      } catch {
+        // 浏览器拒绝本地存储时只在本次会话生效
+      }
+      bump()
+    }
+
+    function toggleFold(workspaceId) {
+      const next = { ...view.folded }
+      if (next[workspaceId]) delete next[workspaceId]
+      else next[workspaceId] = true
+      view.folded = next
+      persistView()
+    }
+
+    function setOrderMode(mode) {
+      view.order = mode === 'manual' ? 'manual' : 'updated'
+      persistView()
+    }
+
+    function setArchivedFilter(filter) {
+      view.filter = filter === 'show' || filter === 'only' ? filter : 'hide'
+      persistView()
+    }
+
+    function selectSession(sessionId) {
+      store.selectedSessionId = sessionId
+      bump()
+      const ui = pluginCtx?.get?.('uiWorkspace')
+      if (ui && typeof ui.openSession === 'function') {
+        try {
+          ui.openSession(sessionId)
+          return
+        } catch {
+          // 回退
+        }
+      }
+      pushToast(t('sidebar.openFailed'))
+    }
+
+    function startSession(workspaceId) {
+      const ui = pluginCtx?.get?.('uiWorkspace')
+      if (ui && typeof ui.startSession === 'function') {
+        try {
+          ui.startSession(workspaceId)
+          return
+        } catch {
+          // 回退
+        }
+      }
+      pushToast(t('sidebar.openFailed'))
+    }
+
+    async function archiveSession(sessionId) {
+      const workspaces = pluginCtx?.get?.('workspaces')
+      if (!workspaces || typeof workspaces.archiveSession !== 'function') return
+      try {
+        await workspaces.archiveSession(sessionId, { stopActivity: false })
+        pushToast(t('sidebar.archived'))
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    async function unarchiveSession(sessionId) {
+      const workspaces = pluginCtx?.get?.('workspaces')
+      if (!workspaces || typeof workspaces.unarchiveSession !== 'function') return
+      try {
+        await workspaces.unarchiveSession(sessionId)
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    async function copySessionId(sessionId) {
+      try {
+        await navigator.clipboard.writeText(sessionId)
+        pushToast(t('sidebar.copied'))
+      } catch {
+        pushToast(sessionId)
+      }
+    }
+
+    async function createWorkspace() {
+      const ui = pluginCtx?.get?.('uiWorkspace')
+      const workspaces = pluginCtx?.get?.('workspaces')
+      if (!ui || typeof ui.pickDirectory !== 'function' || !workspaces) {
+        pushToast(t('sidebar.addUnavailable'))
+        return
+      }
+      try {
+        const path = await ui.pickDirectory()
+        if (!path) return
+        await workspaces.create({ path })
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    async function renameWorkspace(workspaceId, title) {
+      const workspaces = pluginCtx?.get?.('workspaces')
+      if (!workspaces || typeof workspaces.rename !== 'function') return
+      try {
+        await workspaces.rename(workspaceId, title)
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    async function renameSession(sessionId, title) {
+      try {
+        await apiFetch('rename', { method: 'POST', body: JSON.stringify({ sessionId, title }) })
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    async function togglePinned(sessionId) {
+      const pinned = isPinned(sessionId)
+      try {
+        await apiFetch('pin', { method: 'POST', body: JSON.stringify({ sessionId, pinned: !pinned }) })
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    function isPinned(sessionId) {
+      const sidebar = store.sidebar
+      return Boolean(sidebar && Array.isArray(sidebar.pinnedSessionIds) && sidebar.pinnedSessionIds.includes(sessionId))
+    }
+
+    async function toggleFavoriteById(sessionId) {
+      const favorite = !store.favorites.has(sessionId)
+      try {
+        const data = await apiFetch('favorite', {
+          method: 'POST',
+          body: JSON.stringify({ sessionId, favorite }),
+        })
+        store.favorites = new Set(Array.isArray(data.favorites) ? data.favorites : [])
+        store.ready = true
+        bump()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
     }
 
     async function toggleFavorite(sessionId) {
@@ -527,6 +851,7 @@ window.__ModuleLoader__.load({
 
     function onSessionEvent(event) {
       if (!event || typeof event !== 'object') return
+      scheduleSidebarRefresh()
       if (store.settings.enabled === false) return
       const notify = store.settings.notify ?? {}
       if (notify[event.kind] !== true) return
@@ -1011,6 +1336,20 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'dwo-settings' },
         snap.ready ? null : h('p', { className: 'dwo-hint dwo-warning' }, t('settings.unavailable')),
+        h(
+          'div',
+          { className: 'dwo-setting-row' },
+          h('span', { className: 'dwo-setting-label' }, t('settings.sidebarMode')),
+          h(
+            'span',
+            { className: 'dwo-hint' },
+            settings.sidebarMode === 'native' ? t('settings.sidebarMode.native') : t('settings.sidebarMode.optimized'),
+          ),
+          h(Toggle, {
+            checked: settings.sidebarMode !== 'native',
+            onChange: (value) => updateSettings({ sidebarMode: value ? 'optimized' : 'native' }),
+          }),
+        ),
         rows.map(([key, checked, onChange]) =>
           h(
             'div',
@@ -1080,6 +1419,454 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ------------------------------------------------------------------ 自绘侧栏
+
+    function formatRelative(ms) {
+      if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return ''
+      const diff = Date.now() - ms
+      if (diff < 60000) return '<1m'
+      if (diff < 3600000) return `${Math.floor(diff / 60000)}m`
+      if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`
+      if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`
+      try {
+        return new Date(ms).toLocaleDateString()
+      } catch {
+        return ''
+      }
+    }
+
+    function openMenu(kind, payload, event) {
+      const rect =
+        event && event.currentTarget && typeof event.currentTarget.getBoundingClientRect === 'function'
+          ? event.currentTarget.getBoundingClientRect()
+          : { left: 12, bottom: 72 }
+      const maxLeft = Math.max(8, (window.innerWidth || 1024) - 300)
+      const maxTop = Math.max(8, (window.innerHeight || 768) - 340)
+      store.dialog = {
+        kind,
+        ...payload,
+        x: Math.max(8, Math.min(rect.left, maxLeft)),
+        y: Math.max(8, Math.min(rect.bottom + 4, maxTop)),
+      }
+      bump()
+    }
+
+    let dragging = null
+
+    async function moveRelative(sourceId, targetId, mode) {
+      if (!sourceId || !targetId || sourceId === targetId) return
+      const sidebar = store.sidebar
+      const workspace = (sidebar?.workspaces ?? []).find((row) => row.sessionIds.includes(sourceId))
+      if (!workspace) return
+      const ids = workspace.sessionIds.filter((id) => id !== sourceId)
+      const index = ids.indexOf(targetId)
+      if (index < 0) return
+      const before = mode === 'after' ? ids[index + 1] : ids[index]
+      const workspaces = pluginCtx?.get?.('workspaces')
+      if (!workspaces || typeof workspaces.insertSessionBefore !== 'function') return
+      try {
+        await workspaces.insertSessionBefore(workspace.id, sourceId, before)
+        setOrderMode('manual')
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    function SessionRow(props) {
+      const session = props.session
+      const snap = useSnapshot()
+      const color = snap.colors[session.id]
+      const favorite = snap.favorites.has(session.id)
+      const selected = snap.selectedSessionId === session.id
+      const archived = session.archived === true
+      const label = session.title || t('sidebar.untitled')
+      return h(
+        'div',
+        {
+          className: `dwo-srow${selected ? ' dwo-srow-active' : ''}${archived ? ' dwo-srow-archived' : ''}`,
+          role: 'button',
+          tabIndex: 0,
+          title: label,
+          draggable: !archived,
+          onDragStart: (event) => {
+            if (archived) return
+            dragging = { id: session.id, workspaceId: props.workspaceId }
+            try {
+              event.dataTransfer.setData('text/plain', session.id)
+              event.dataTransfer.effectAllowed = 'move'
+            } catch {
+              // 某些宿主禁止设置拖拽数据
+            }
+          },
+          onDragOver: (event) => {
+            if (!dragging || dragging.id === session.id || archived) return
+            event.preventDefault()
+            const rect = event.currentTarget.getBoundingClientRect()
+            event.currentTarget.dataset.dwoDrop = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+          },
+          onDragLeave: (event) => {
+            delete event.currentTarget.dataset.dwoDrop
+          },
+          onDrop: (event) => {
+            event.preventDefault()
+            const mode = event.currentTarget.dataset.dwoDrop === 'after' ? 'after' : 'before'
+            delete event.currentTarget.dataset.dwoDrop
+            const source = dragging ? dragging.id : ''
+            dragging = null
+            void moveRelative(source, session.id, mode)
+          },
+          onDragEnd: () => {
+            dragging = null
+          },
+          onClick: () => {
+            if (!archived) selectSession(session.id)
+          },
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' && !archived) selectSession(session.id)
+          },
+        },
+        h('span', {
+          className: `dwo-srow-dot${session.running ? ' dwo-srow-dot-running' : ''}`,
+          style: color ? { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] } : undefined,
+        }),
+        h('span', { className: 'dwo-srow-title' }, label),
+        session.running ? h('span', { className: 'dwo-srow-running' }) : null,
+        h('span', { className: 'dwo-srow-time' }, formatRelative(session.updatedAt)),
+        h(
+          'span',
+          { className: 'dwo-srow-actions' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
+              title: favorite ? t('fav.remove') : t('fav.add'),
+              'aria-label': favorite ? t('fav.remove') : t('fav.add'),
+              onClick: (event) => {
+                event.stopPropagation()
+                void toggleFavoriteById(session.id)
+              },
+            },
+            h(StarIcon, { filled: favorite, size: 13 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
+              title: t('session.menu'),
+              'aria-label': t('session.menu'),
+              onClick: (event) => {
+                event.stopPropagation()
+                openMenu('sessionMenu', { sessionId: session.id }, event)
+              },
+            },
+            '⋯',
+          ),
+        ),
+      )
+    }
+
+    function WorkspaceGroup(props) {
+      const workspace = props.workspace
+      const rows = props.rows
+      const snap = useSnapshot()
+      const folded = view.folded[workspace.id] === true
+      const color = snap.colors[workspace.id]
+      const favorite = snap.workspaceFavorites.has(workspace.id)
+      return h(
+        'div',
+        { className: 'dwo-group' },
+        h(
+          'div',
+          { className: 'dwo-ws' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-ws-fold',
+              title: folded ? t('sidebar.rail') : workspace.path || workspace.id,
+              onClick: () => toggleFold(workspace.id),
+            },
+            folded ? '▸' : '▾',
+          ),
+          h('span', {
+            className: 'dwo-ws-dot',
+            style: color ? { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] } : undefined,
+          }),
+          h('span', { className: 'dwo-ws-title' }, workspace.title || workspace.path || workspace.id),
+          h('span', { className: 'dwo-ws-count' }, String(rows.length)),
+          h(
+            'span',
+            { className: 'dwo-ws-actions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dwo-icon-button',
+                title: favorite ? t('ws.unfavorite') : t('ws.favorite'),
+                onClick: () => void toggleWorkspaceFavorite(workspace.id),
+              },
+              h(StarIcon, { filled: favorite, size: 12 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dwo-icon-button',
+                title: t('session.menu'),
+                onClick: (event) => openMenu('workspaceMenu', { workspaceId: workspace.id }, event),
+              },
+              '⋯',
+            ),
+          ),
+        ),
+        folded
+          ? null
+          : h(
+              'div',
+              { className: 'dwo-rows' },
+              rows.length === 0
+                ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
+                : rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
+            ),
+      )
+    }
+
+    function SidebarBrowser(props) {
+      const snap = useSnapshot()
+      const wide = props.wide !== false
+
+      React.useEffect(() => {
+        if (!store.sidebar && !store.sidebarLoading) refreshSidebar()
+      }, [])
+
+      if (!wide) {
+        return h(
+          'button',
+          {
+            type: 'button',
+            className: 'dwo-rail-button',
+            title: t('sidebar.rail'),
+            onClick: () => props.expandSidebar && props.expandSidebar(),
+          },
+          '≡',
+        )
+      }
+
+      const sidebar = snap.sidebar
+      const sessions = Array.isArray(sidebar?.sessions) ? sidebar.sessions : []
+      const byId = new Map(sessions.map((session) => [session.id, session]))
+      const query = (view.search || '').trim().toLowerCase()
+      const keep = (session) => {
+        if (view.filter === 'hide' && session.archived) return false
+        if (view.filter === 'only' && !session.archived) return false
+        if (query && !String(session.title || '').toLowerCase().includes(query)) return false
+        return true
+      }
+      const sortRows = (ids) => {
+        const rows = ids
+          .map((id) => byId.get(id))
+          .filter(Boolean)
+          .filter(keep)
+        if (view.order === 'manual') {
+          const index = new Map(ids.map((id, position) => [id, position]))
+          rows.sort((a, b) => (index.get(a.id) ?? 0) - (index.get(b.id) ?? 0))
+        } else {
+          rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        }
+        return rows
+      }
+      const groups = (Array.isArray(sidebar?.workspaces) ? sidebar.workspaces : []).map((workspace) => ({
+        workspace,
+        rows: sortRows(workspace.sessionIds),
+      }))
+      const total = groups.reduce((sum, group) => sum + group.rows.length, 0)
+
+      return h(
+        'div',
+        { className: 'dwo-sidebar' },
+        h(
+          'div',
+          { className: 'dwo-sidebar-head' },
+          h('span', { className: 'dwo-sidebar-title' }, t('sidebar.title')),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
+              title: t('sidebar.newSession'),
+              onClick: () => startSession(groups[0]?.workspace.id),
+            },
+            '+',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
+              title: t('view.options'),
+              onClick: (event) => openMenu('viewOptions', {}, event),
+            },
+            '☰',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
+              title: t('sidebar.refresh'),
+              onClick: () => void refreshSidebar(),
+            },
+            '⟳',
+          ),
+        ),
+        h('input', {
+          className: 'dwo-search',
+          type: 'search',
+          value: view.search,
+          placeholder: t('sidebar.search'),
+          onChange: (event) => {
+            view.search = event.target.value
+            bump()
+          },
+        }),
+        snap.sidebarError
+          ? h('div', { className: 'dwo-sidebar-error' }, snap.sidebarError)
+          : null,
+        sidebar === null
+          ? h('div', { className: 'dwo-group-empty' }, t('sidebar.loading'))
+          : h(
+              'div',
+              { className: 'dwo-groups' },
+              groups.map((group) => h(WorkspaceGroup, { key: group.workspace.id, workspace: group.workspace, rows: group.rows })),
+              total === 0 && query ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty')) : null,
+            ),
+        h(
+          'div',
+          { className: 'dwo-sidebar-foot' },
+          h('button', { type: 'button', className: 'dwo-text-button', onClick: () => void createWorkspace() }, t('sidebar.addWorkspace')),
+        ),
+      )
+    }
+
+    function MenuPopover(props) {
+      return h(
+        'div',
+        {
+          className: 'dwo-overlay dwo-overlay-clear',
+          role: 'presentation',
+          onClick: (event) => {
+            if (event.target === event.currentTarget) closeDialog()
+          },
+        },
+        h(
+          'div',
+          {
+            className: 'dwo-popover',
+            role: 'menu',
+            style: { left: `${props.x}px`, top: `${props.y}px` },
+            onClick: (event) => event.stopPropagation(),
+          },
+          props.items.map((item, index) =>
+            h(
+              'button',
+              {
+                key: `${index}-${item.label}`,
+                type: 'button',
+                role: 'menuitem',
+                className: 'dwo-menu-item',
+                disabled: item.disabled === true,
+                onClick: () => item.run(),
+              },
+              item.checked ? h('span', { className: 'dwo-check' }, '✓') : null,
+              h('span', null, item.label),
+            ),
+          ),
+        ),
+      )
+    }
+
+    function PromptDialog(props) {
+      const [value, setValue] = React.useState(props.value || '')
+      const submit = () => {
+        const next = value.trim()
+        if (next) props.onSubmit(next)
+        closeDialog()
+      }
+      return h(
+        DialogShell,
+        { title: props.title },
+        h('input', {
+          className: 'dwo-input',
+          value,
+          autoFocus: true,
+          onChange: (event) => setValue(event.target.value),
+          onKeyDown: (event) => {
+            if (event.key === 'Enter') submit()
+          },
+        }),
+        h(
+          'div',
+          { className: 'dwo-dialog-actions' },
+          h('button', { type: 'button', className: 'dwo-button', onClick: submit }, t('common.ok')),
+          h('button', { type: 'button', className: 'dwo-button', onClick: closeDialog }, t('common.cancel')),
+        ),
+      )
+    }
+
+    function menuItemsFor(dialog, snap) {
+      if (!dialog) return []
+      if (dialog.kind === 'viewOptions') {
+        return [
+          { label: t('view.order.updated'), checked: view.order === 'updated', run: () => { setOrderMode('updated'); closeDialog() } },
+          { label: t('view.order.manual'), checked: view.order === 'manual', run: () => { setOrderMode('manual'); closeDialog() } },
+          { label: t('view.filter.hide'), checked: view.filter === 'hide', run: () => { setArchivedFilter('hide'); closeDialog() } },
+          { label: t('view.filter.show'), checked: view.filter === 'show', run: () => { setArchivedFilter('show'); closeDialog() } },
+          { label: t('view.filter.only'), checked: view.filter === 'only', run: () => { setArchivedFilter('only'); closeDialog() } },
+        ]
+      }
+      if (dialog.kind === 'sessionMenu') {
+        const sessionId = dialog.sessionId
+        const session = (snap.sidebar?.sessions ?? []).find((row) => row.id === sessionId)
+        const favorite = snap.favorites.has(sessionId)
+        const pinned = isPinned(sessionId)
+        const items = [
+          { label: favorite ? t('fav.remove') : t('fav.add'), run: () => { closeDialog(); void toggleFavoriteById(sessionId) } },
+          { label: t('session.color'), run: () => openDialog({ kind: 'color', sessionId }) },
+          { label: t('session.rename'), run: () => openDialog({ kind: 'renameSession', sessionId, value: session?.title || '' }) },
+          { label: pinned ? t('session.unpin') : t('session.pin'), run: () => { closeDialog(); void togglePinned(sessionId) } },
+          { label: t('session.copyId'), run: () => { closeDialog(); void copySessionId(sessionId) } },
+        ]
+        if (snap.capabilities?.move === true) {
+          items.push({ label: t('session.move'), run: () => openDialog({ kind: 'move', sessionId }) })
+        }
+        let orderIndex = (session && snap.sidebar) ? (snap.sidebar.workspaces.find((w) => w.sessionIds.includes(sessionId))?.sessionIds ?? []).indexOf(sessionId) : -1
+        if (orderIndex >= 0) {
+          items.push({ label: t('order.top'), run: () => { closeDialog(); void applyOrder(sessionId, 'top') } })
+          items.push({ label: t('order.up'), run: () => { closeDialog(); void applyOrder(sessionId, 'up') } })
+          items.push({ label: t('order.down'), run: () => { closeDialog(); void applyOrder(sessionId, 'down') } })
+          items.push({ label: t('order.bottom'), run: () => { closeDialog(); void applyOrder(sessionId, 'bottom') } })
+        }
+        if (session?.archived) items.push({ label: t('session.unarchive'), run: () => { closeDialog(); void unarchiveSession(sessionId) } })
+        else items.push({ label: t('session.archive'), run: () => { closeDialog(); void archiveSession(sessionId) } })
+        return items
+      }
+      if (dialog.kind === 'workspaceMenu') {
+        const workspaceId = dialog.workspaceId
+        const workspace = (snap.sidebar?.workspaces ?? []).find((row) => row.id === workspaceId)
+        const favorite = snap.workspaceFavorites.has(workspaceId)
+        return [
+          { label: favorite ? t('ws.unfavorite') : t('ws.favorite'), run: () => { closeDialog(); void toggleWorkspaceFavorite(workspaceId) } },
+          { label: t('ws.color'), run: () => openDialog({ kind: 'color', sessionId: workspaceId }) },
+          { label: t('ws.newSession'), run: () => { closeDialog(); startSession(workspaceId) } },
+          { label: t('ws.rename'), run: () => openDialog({ kind: 'renameWorkspace', workspaceId, value: workspace?.title || '' }) },
+        ]
+      }
+      return []
+    }
+
     function Surfaces() {
       const snap = useSnapshot()
       const dialog = snap.dialog
@@ -1093,6 +1880,20 @@ window.__ModuleLoader__.load({
           surface = h(OrderPicker, { sessionId: dialog.sessionId })
         } else if (dialog.kind === 'move') {
           surface = h(MovePicker, { sessionId: dialog.sessionId })
+        } else if (dialog.kind === 'sessionMenu' || dialog.kind === 'workspaceMenu' || dialog.kind === 'viewOptions') {
+          surface = h(MenuPopover, { items: menuItemsFor(dialog, snap), x: dialog.x, y: dialog.y })
+        } else if (dialog.kind === 'renameSession') {
+          surface = h(PromptDialog, {
+            title: t('session.rename'),
+            value: dialog.value,
+            onSubmit: (value) => void renameSession(dialog.sessionId, value),
+          })
+        } else if (dialog.kind === 'renameWorkspace') {
+          surface = h(PromptDialog, {
+            title: t('ws.rename'),
+            value: dialog.value,
+            onSubmit: (value) => void renameWorkspace(dialog.workspaceId, value),
+          })
         } else if (dialog.kind === 'settings') {
           surface = h(DialogShell, { title: t('settings.title') }, h(SettingsForm))
         }
@@ -1159,6 +1960,48 @@ window.__ModuleLoader__.load({
 .dwo-toggle-knob{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s ease}
 .dwo-toggle-on .dwo-toggle-knob{transform:translateX(16px)}
 .dwo-time{padding:3px 6px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:12px}
+.dwo-sidebar{display:flex;flex-direction:column;gap:6px;min-width:0;width:100%;height:100%;padding:6px 4px 10px;box-sizing:border-box;color:var(--dsw-alias-label-primary,inherit)}
+.dwo-sidebar-head{display:flex;align-items:center;gap:2px;padding:2px 4px}
+.dwo-sidebar-title{flex:1 1 auto;font-size:12.5px;font-weight:600;letter-spacing:.01em;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dwo-search{width:100%;box-sizing:border-box;margin:0 4px;padding:4px 8px;border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:7px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;font:inherit;font-size:12px;outline:none}
+.dwo-search:focus{border-color:color-mix(in srgb,currentColor 32%,transparent)}
+.dwo-sidebar-error{margin:0 6px;padding:5px 8px;border-radius:6px;background:color-mix(in srgb,#f59e0b 16%,transparent);font-size:11px;line-height:15px;word-break:break-word}
+.dwo-groups{display:flex;flex-direction:column;gap:2px;overflow:auto;flex:1 1 auto;min-height:0;padding:0 2px}
+.dwo-group{display:flex;flex-direction:column;gap:1px}
+.dwo-ws{display:flex;align-items:center;gap:4px;min-height:26px;padding:1px 4px;border-radius:6px}
+.dwo-ws:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
+.dwo-ws-fold{width:16px;height:20px;padding:0;border:0;background:transparent;color:inherit;font-size:10px;cursor:pointer;opacity:.7;flex:0 0 auto}
+.dwo-ws-dot{width:8px;height:8px;border-radius:2px;border:1px solid color-mix(in srgb,currentColor 28%,transparent);flex:0 0 auto}
+.dwo-ws-title{flex:1 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dwo-ws-count{font-size:10.5px;opacity:.5;flex:0 0 auto}
+.dwo-ws-actions,.dwo-srow-actions{display:flex;align-items:center;gap:1px;flex:0 0 auto;opacity:0;transition:opacity .12s ease}
+.dwo-ws:hover .dwo-ws-actions,.dwo-srow:hover .dwo-srow-actions,.dwo-srow-active .dwo-srow-actions{opacity:1}
+.dwo-rows{display:flex;flex-direction:column;gap:1px;padding-left:10px}
+.dwo-srow{display:flex;align-items:center;gap:6px;min-height:27px;padding:1px 4px 1px 6px;border-radius:6px;cursor:pointer;outline:none}
+.dwo-srow:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
+.dwo-srow:focus-visible{box-shadow:0 0 0 1px color-mix(in srgb,currentColor 32%,transparent)}
+.dwo-srow-active{background:color-mix(in srgb,currentColor 13%,transparent)}
+.dwo-srow-archived{opacity:.55}
+.dwo-srow-archived .dwo-srow-title{text-decoration:line-through}
+.dwo-srow[data-dwo-drop="before"]{box-shadow:inset 0 2px 0 #60a5fa}
+.dwo-srow[data-dwo-drop="after"]{box-shadow:inset 0 -2px 0 #60a5fa}
+.dwo-srow-dot{width:7px;height:7px;border-radius:50%;border:1px solid color-mix(in srgb,currentColor 26%,transparent);flex:0 0 auto}
+.dwo-srow-dot-running{background:#34d399;border-color:#34d399;animation:dwo-pulse 1.2s ease-in-out infinite}
+@keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dwo-srow-time{font-size:10.5px;opacity:.45;flex:0 0 auto}
+.dwo-srow-running{width:6px;height:6px;border-radius:50%;background:#34d399;flex:0 0 auto}
+.dwo-group-empty{padding:8px 10px;font-size:11.5px;opacity:.5}
+.dwo-sidebar-foot{display:flex;padding:2px 6px 0;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);padding-top:6px}
+.dwo-text-button{padding:2px 4px;border:0;background:transparent;color:inherit;font:inherit;font-size:11.5px;opacity:.65;cursor:pointer;text-align:left}
+.dwo-text-button:hover{opacity:1;text-decoration:underline}
+.dwo-rail-button{display:flex;align-items:center;justify-content:center;width:36px;height:36px;margin:4px auto;border:0;border-radius:8px;background:transparent;color:inherit;font-size:15px;cursor:pointer}
+.dwo-rail-button:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
+.dwo-overlay-clear{background:transparent}
+.dwo-popover{position:fixed;z-index:2147482000;min-width:200px;max-width:280px;max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:1px;padding:5px;border-radius:10px;background:var(--dsw-alias-bg-elevated,#20242e);color:var(--dsw-alias-label-primary,#e8eaf0);border:1px solid color-mix(in srgb,currentColor 14%,transparent);box-shadow:0 16px 38px rgba(0,0,0,.4)}
+.dwo-check{width:14px;display:inline-block;text-align:center;opacity:.85}
+.dwo-input{width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:13px;outline:none}
+.dwo-input:focus{border-color:color-mix(in srgb,currentColor 38%,transparent)}
 `
 
     function installStyles() {
@@ -1225,6 +2068,47 @@ window.__ModuleLoader__.load({
       register('sidebar.session.row.hover', { id: 'workspace-optimize.hover', order: 10 }, HoverInfo)
       register('shell.overlay', { id: 'workspace-optimize.surfaces', order: 60 }, Surfaces)
       register('settings.section', { id: 'workspace-optimize', order: 80, label: () => t('settings.title') }, SettingsSection)
+
+      // 侧栏替换：只有 sidebarMode 为 optimized 时才占用 sidebar.workspaces，
+      // 切回 native 时释放插槽，官方 WorkspaceBrowser 自动恢复。
+      let disposeBrowser = null
+      const syncSidebarMode = () => {
+        const optimized = store.settings.sidebarMode !== 'native'
+        if (optimized && !disposeBrowser) {
+          try {
+            disposeBrowser = ctx.slots.inject('sidebar.workspaces', () =>
+              ctx.slots.register({ name: 'sidebar.workspaces', priority: 100 }, SidebarBrowser),
+            )
+          } catch (error) {
+            try {
+              ctx.logger?.warn?.(`workspace-optimize: 替换侧栏失败：${String(error)}`)
+            } catch {
+              // 忽略
+            }
+            disposeBrowser = null
+          }
+        } else if (!optimized && disposeBrowser) {
+          try {
+            disposeBrowser()
+          } catch {
+            // 已释放
+          }
+          disposeBrowser = null
+        }
+      }
+      sidebarModeSync = syncSidebarMode
+      syncSidebarMode()
+      disposers.push(() => {
+        if (disposeBrowser) {
+          try {
+            disposeBrowser()
+          } catch {
+            // 已释放
+          }
+          disposeBrowser = null
+        }
+        if (sidebarModeSync === syncSidebarMode) sidebarModeSync = null
+      })
 
       refreshState().catch(() => {})
       connectChannel()

@@ -1711,11 +1711,14 @@ window.__ModuleLoader__.load({
           : { left: 12, bottom: 72 }
       const maxLeft = Math.max(8, (window.innerWidth || 1024) - 300)
       const maxTop = Math.max(8, (window.innerHeight || 768) - 340)
+      // 右键用鼠标坐标，普通点击回退到按钮/行的位置。
+      const rawX = typeof event?.clientX === 'number' && event.clientX > 0 ? event.clientX : rect.left
+      const rawY = typeof event?.clientY === 'number' && event.clientY > 0 ? event.clientY : rect.bottom + 4
       store.dialog = {
         kind,
         ...payload,
-        x: Math.max(8, Math.min(rect.left, maxLeft)),
-        y: Math.max(8, Math.min(rect.bottom + 4, maxTop)),
+        x: Math.max(8, Math.min(rawX, maxLeft)),
+        y: Math.max(8, Math.min(rawY, maxTop)),
       }
       bump()
     }
@@ -1833,6 +1836,11 @@ window.__ModuleLoader__.load({
           },
           onDragEnd: () => {
             dragging = null
+          },
+          onContextMenu: (event) => {
+            event.preventDefault()
+            hideHover()
+            openMenu('sessionMenu', { sessionId: session.id }, event)
           },
           onClick: () => {
             if (!archived && !broken) selectSession(session.id)
@@ -2466,10 +2474,13 @@ window.__ModuleLoader__.load({
 .dwo-ws-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
 .dwo-ws-title{flex:1 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-ws-count{font-size:10.5px;opacity:.5;flex:0 0 auto}
-.dwo-ws-actions,.dwo-srow-actions{display:flex;align-items:center;gap:1px;flex:0 0 auto;opacity:0;transition:opacity .12s ease}
-.dwo-ws:hover .dwo-ws-actions,.dwo-srow:hover .dwo-srow-actions,.dwo-srow-active .dwo-srow-actions{opacity:1}
+.dwo-ws-actions{display:flex;align-items:center;gap:1px;flex:0 0 auto;opacity:0;transition:opacity .12s ease}
+.dwo-srow-actions{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:1px;opacity:0;pointer-events:none;transition:opacity .12s ease}
+.dwo-ws:hover .dwo-ws-actions,.dwo-srow:hover .dwo-srow-actions{opacity:1}
+.dwo-srow:hover .dwo-srow-actions{pointer-events:auto}
+.dwo-srow:hover .dwo-srow-time{opacity:0}
 .dwo-rows{display:flex;flex-direction:column;gap:1px;padding-left:10px}
-.dwo-srow{display:flex;align-items:center;gap:6px;min-height:27px;padding:1px 4px 1px 6px;border-radius:6px;cursor:pointer;outline:none}
+.dwo-srow{position:relative;display:flex;align-items:center;gap:6px;min-height:27px;padding:1px 4px 1px 6px;border-radius:6px;cursor:pointer;outline:none}
 .dwo-srow:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
 .dwo-srow:focus-visible{box-shadow:0 0 0 1px color-mix(in srgb,currentColor 32%,transparent)}
 .dwo-srow-active{background:color-mix(in srgb,currentColor 13%,transparent)}
@@ -2488,7 +2499,7 @@ window.__ModuleLoader__.load({
 .dwo-srow-dot-done{background:#34d399}
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dwo-srow-time{font-size:10.5px;opacity:.45;flex:0 0 auto}
+.dwo-srow-time{font-size:10.5px;opacity:.45;flex:0 0 auto;margin-left:auto;padding-left:6px}
 .dwo-srow-running{width:6px;height:6px;border-radius:50%;background:#34d399;flex:0 0 auto}
 .dwo-group-empty{padding:8px 10px;font-size:11.5px;opacity:.5}
 .dwo-sidebar-foot{display:flex;padding:2px 6px 0;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);padding-top:6px}

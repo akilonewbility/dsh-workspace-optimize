@@ -122,6 +122,7 @@ window.__ModuleLoader__.load({
         'sidebar.running': '运行中',
         'sidebar.pendingApproval': '等待审批',
         'sidebar.pendingQuestion': '等待回答',
+        'sidebar.done': '已完成',
         'sidebar.schedules': '{count} 个定时任务',
         'search.results': '正文命中',
         'view.options': '视图选项',
@@ -251,6 +252,7 @@ window.__ModuleLoader__.load({
         'sidebar.running': 'Running',
         'sidebar.pendingApproval': 'Waiting for approval',
         'sidebar.pendingQuestion': 'Waiting for answer',
+        'sidebar.done': 'Done',
         'sidebar.schedules': '{count} scheduled task(s)',
         'search.results': 'Content matches',
         'view.options': 'View options',
@@ -638,13 +640,23 @@ window.__ModuleLoader__.load({
     }
 
     let sidebarRefreshTimer = null
+    let sidebarLastRefresh = 0
 
     function scheduleSidebarRefresh() {
+      // 首个事件立即刷新（让黄灯尽快出现），后续事件在窗口内合并
+      const now = Date.now()
+      const elapsed = now - sidebarLastRefresh
+      if (elapsed >= 300) {
+        sidebarLastRefresh = now
+        if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
+        return
+      }
       if (sidebarRefreshTimer) return
       sidebarRefreshTimer = setTimeout(() => {
         sidebarRefreshTimer = null
+        sidebarLastRefresh = Date.now()
         if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
-      }, 300)
+      }, 300 - elapsed)
     }
 
     let sidebarModeSync = null
@@ -1899,7 +1911,21 @@ window.__ModuleLoader__.load({
           }`,
         }),
         h('span', { className: 'dwo-srow-title', style: color ? { color: COLOR_HEX[color] } : undefined }, label),
-        h('span', { className: 'dwo-srow-time' }, formatRelative(session.updatedAt)),
+        h(
+          'span',
+          {
+            className: `dwo-srow-time${
+              dotState === 'pending' ? ' dwo-srow-time-pending' : dotState === 'done' ? ' dwo-srow-time-done' : ''
+            }`,
+          },
+          dotState === 'pending'
+            ? pending === 'approval'
+              ? t('sidebar.pendingApproval')
+              : t('sidebar.pendingQuestion')
+            : dotState === 'done'
+              ? t('sidebar.done')
+              : formatRelative(session.updatedAt),
+        ),
         h(
           'span',
           { className: 'dwo-srow-actions' },
@@ -2568,6 +2594,8 @@ window.__ModuleLoader__.load({
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-srow-time{font-size:10.5px;opacity:.45;flex:0 0 auto;margin-left:auto;padding-left:6px}
+.dwo-srow-time-pending{color:#fbbf24;opacity:1}
+.dwo-srow-time-done{color:#34d399;opacity:1}
 .dwo-srow-running{width:6px;height:6px;border-radius:50%;background:#34d399;flex:0 0 auto}
 .dwo-group-empty{padding:8px 10px;font-size:11.5px;opacity:.5}
 .dwo-sidebar-foot{display:flex;padding:2px 6px 0;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);padding-top:6px}

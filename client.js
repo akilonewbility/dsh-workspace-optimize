@@ -109,6 +109,8 @@ window.__ModuleLoader__.load({
         'sidebar.rail': '展开侧栏',
         'sidebar.broken': '日志不可用',
         'view.options': '视图选项',
+        'view.group.flat': '平铺分组',
+        'view.group.tree': '工作区树',
         'view.order.updated': '最近更新',
         'view.order.manual': '手动',
         'view.filter.hide': '隐藏已归档',
@@ -219,6 +221,8 @@ window.__ModuleLoader__.load({
         'sidebar.rail': 'Expand sidebar',
         'sidebar.broken': 'log unavailable',
         'view.options': 'View options',
+        'view.group.flat': 'Flat groups',
+        'view.group.tree': 'Workspace tree',
         'view.order.updated': 'Last updated',
         'view.order.manual': 'Manual',
         'view.filter.hide': 'Hide archived',
@@ -502,6 +506,7 @@ window.__ModuleLoader__.load({
       return {
         order: saved.order === 'manual' ? 'manual' : 'updated',
         filter: saved.filter === 'show' || saved.filter === 'only' ? saved.filter : 'hide',
+        groupBy: saved.groupBy === 'tree' ? 'tree' : 'flat',
         folded: saved.folded && typeof saved.folded === 'object' ? saved.folded : {},
         search: '',
         searchOpen: false,
@@ -514,7 +519,7 @@ window.__ModuleLoader__.load({
       try {
         localStorage.setItem(
           VIEW_KEY,
-          JSON.stringify({ order: view.order, filter: view.filter, folded: view.folded }),
+          JSON.stringify({ order: view.order, filter: view.filter, groupBy: view.groupBy, folded: view.folded }),
         )
       } catch {
         // 浏览器拒绝本地存储时只在本次会话生效
@@ -532,6 +537,11 @@ window.__ModuleLoader__.load({
 
     function setOrderMode(mode) {
       view.order = mode === 'manual' ? 'manual' : 'updated'
+      persistView()
+    }
+
+    function setGroupBy(mode) {
+      view.groupBy = mode === 'tree' ? 'tree' : 'flat'
       persistView()
     }
 
@@ -1586,9 +1596,39 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** 按路径把工作区组织成树：父节点是最近的已注册祖先目录。 */
+    function buildWorkspaceTree(workspaces) {
+      const nodes = workspaces.map((workspace) => ({ workspace, children: [] }))
+      const byPath = new Map()
+      for (const node of nodes) {
+        const key = String(node.workspace.path || '').toLowerCase().replace(/[\\/]+$/, '')
+        if (key) byPath.set(key, node)
+      }
+      const roots = []
+      for (const node of nodes) {
+        const path = String(node.workspace.path || '').toLowerCase().replace(/[\\/]+$/, '')
+        let parent = null
+        let cursor = path
+        while (cursor.length > 0) {
+          const cut = Math.max(cursor.lastIndexOf('\\'), cursor.lastIndexOf('/'))
+          if (cut <= 0) break
+          cursor = cursor.slice(0, cut)
+          const candidate = byPath.get(cursor)
+          if (candidate && candidate !== node) {
+            parent = candidate
+            break
+          }
+        }
+        if (parent) parent.children.push(node)
+        else roots.push(node)
+      }
+      return roots
+    }
+
     function WorkspaceGroup(props) {
       const workspace = props.workspace
       const rows = props.rows
+      const depth = typeof props.depth === 'number' ? props.depth : 0
       const snap = useSnapshot()
       const folded = view.folded[workspace.id] === true
       const color = snap.colors[workspace.id]
@@ -1598,7 +1638,7 @@ window.__ModuleLoader__.load({
         { className: 'dwo-group' },
         h(
           'div',
-          { className: 'dwo-ws' },
+          { className: 'dwo-ws', style: { paddingLeft: `${4 + depth * 12}px` } },
           h(
             'button',
             {
@@ -1645,11 +1685,16 @@ window.__ModuleLoader__.load({
         folded
           ? null
           : h(
-              'div',
-              { className: 'dwo-rows' },
-              rows.length === 0
-                ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
-                : rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
+              React.Fragment,
+              null,
+              props.subGroups ?? null,
+              h(
+                'div',
+                { className: 'dwo-rows' },
+                rows.length === 0
+                  ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
+                  : rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
+              ),
             ),
       )
     }
@@ -1698,11 +1743,25 @@ window.__ModuleLoader__.load({
         }
         return rows
       }
-      const groups = (Array.isArray(sidebar?.workspaces) ? sidebar.workspaces : []).map((workspace) => ({
+      const workspaceList = Array.isArray(sidebar?.workspaces) ? sidebar.workspaces : []
+      const groups = workspaceList.map((workspace) => ({
         workspace,
         rows: sortRows(workspace.sessionIds),
       }))
       const total = groups.reduce((sum, group) => sum + group.rows.length, 0)
+      const renderTree = (nodes, depth) =>
+        nodes.map((node) => {
+          const rows = sortRows(node.workspace.sessionIds)
+          const subGroups =
+            node.children.length > 0 ? h(React.Fragment, null, renderTree(node.children, depth + 1)) : null
+          return h(WorkspaceGroup, {
+            key: node.workspace.id,
+            workspace: node.workspace,
+            rows,
+            depth,
+            subGroups,
+          })
+        })
 
       return h(
         'div',
@@ -1760,7 +1819,9 @@ window.__ModuleLoader__.load({
           : h(
               'div',
               { className: 'dwo-groups' },
-              groups.map((group) => h(WorkspaceGroup, { key: group.workspace.id, workspace: group.workspace, rows: group.rows })),
+              view.groupBy === 'tree'
+                ? renderTree(buildWorkspaceTree(workspaceList), 0)
+                : groups.map((group) => h(WorkspaceGroup, { key: group.workspace.id, workspace: group.workspace, rows: group.rows })),
               total === 0 && query ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty')) : null,
             ),
         h(
@@ -1874,6 +1935,8 @@ window.__ModuleLoader__.load({
       if (!dialog) return []
       if (dialog.kind === 'viewOptions') {
         return [
+          { label: t('view.group.flat'), checked: view.groupBy !== 'tree', run: () => { setGroupBy('flat'); closeDialog() } },
+          { label: t('view.group.tree'), checked: view.groupBy === 'tree', run: () => { setGroupBy('tree'); closeDialog() } },
           { label: t('view.order.updated'), checked: view.order === 'updated', run: () => { setOrderMode('updated'); closeDialog() } },
           { label: t('view.order.manual'), checked: view.order === 'manual', run: () => { setOrderMode('manual'); closeDialog() } },
           { label: t('view.filter.hide'), checked: view.filter === 'hide', run: () => { setArchivedFilter('hide'); closeDialog() } },

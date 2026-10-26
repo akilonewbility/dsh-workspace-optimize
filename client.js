@@ -2317,7 +2317,10 @@ window.__ModuleLoader__.load({
         }
         if (session?.archived) items.push({ label: t('session.unarchive'), run: () => { closeDialog(); void unarchiveSession(sessionId) } })
         else items.push({ label: t('session.archive'), run: () => { closeDialog(); void archiveSession(sessionId) } })
-        items.push({ label: t('session.delete'), run: () => { closeDialog(); void deleteSession(sessionId, session?.title) } })
+        // 官方没有删除会话的 API，只有 Archive Manager 提供；能力不可用时不显示入口。
+        if (snap.sidebar?.capabilities?.delete === true) {
+          items.push({ label: t('session.delete'), run: () => { closeDialog(); void deleteSession(sessionId, session?.title) } })
+        }
         return items
       }
       if (dialog.kind === 'workspaceMenu') {

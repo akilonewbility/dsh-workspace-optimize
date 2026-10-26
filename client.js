@@ -83,6 +83,7 @@ window.__ModuleLoader__.load({
         'notify.error': '会话出错',
         'notify.started': '会话开始运行',
         'toast.saved': '已保存',
+        'toast.deleted': '已删除会话',
         'toast.failed': '操作失败',
         'toast.unchanged': '位置没有变化',
         'toast.orderDone': '已调整顺序；若看不到变化，请把排序切到「手动」',
@@ -143,6 +144,8 @@ window.__ModuleLoader__.load({
         'session.archive': '归档',
         'session.unarchive': '恢复',
         'session.copyId': '复制会话 ID',
+        'session.delete': '删除会话…',
+        'session.deleteConfirm': '永久删除会话「{title}」？日志与索引会被清除，无法撤销。',
         'session.menu': '更多操作',
         'session.color': '设置颜色…',
         'session.move': '移动到工作区…',
@@ -209,6 +212,7 @@ window.__ModuleLoader__.load({
         'notify.error': 'Session error',
         'notify.started': 'Session started',
         'toast.saved': 'Saved',
+        'toast.deleted': 'Session deleted',
         'toast.failed': 'Action failed',
         'toast.unchanged': 'Position unchanged',
         'toast.orderDone': 'Order updated; switch Sort to Manual if you do not see it',
@@ -269,6 +273,8 @@ window.__ModuleLoader__.load({
         'session.archive': 'Archive',
         'session.unarchive': 'Unarchive',
         'session.copyId': 'Copy session ID',
+        'session.delete': 'Delete session…',
+        'session.deleteConfirm': 'Permanently delete session "{title}"? Its log and index entries are removed; this cannot be undone.',
         'session.menu': 'More actions',
         'session.color': 'Set color…',
         'session.move': 'Move to workspace…',
@@ -824,6 +830,20 @@ window.__ModuleLoader__.load({
     async function renameSession(sessionId, title) {
       try {
         await apiFetch('rename', { method: 'POST', body: JSON.stringify({ sessionId, title }) })
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    async function deleteSession(sessionId, title) {
+      const label = title || sessionId.slice(0, 8)
+      const confirmed =
+        typeof window.confirm === 'function' ? window.confirm(t('session.deleteConfirm', { title: label })) : true
+      if (!confirmed) return
+      try {
+        await apiFetch('delete', { method: 'POST', body: JSON.stringify({ sessionId }) })
+        pushToast(t('toast.deleted'))
         await refreshSidebar()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
@@ -2297,6 +2317,7 @@ window.__ModuleLoader__.load({
         }
         if (session?.archived) items.push({ label: t('session.unarchive'), run: () => { closeDialog(); void unarchiveSession(sessionId) } })
         else items.push({ label: t('session.archive'), run: () => { closeDialog(); void archiveSession(sessionId) } })
+        items.push({ label: t('session.delete'), run: () => { closeDialog(); void deleteSession(sessionId, session?.title) } })
         return items
       }
       if (dialog.kind === 'workspaceMenu') {

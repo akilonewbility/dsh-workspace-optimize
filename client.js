@@ -1777,7 +1777,8 @@ window.__ModuleLoader__.load({
       const broken = session.openable === false
       // 冷会话可能没有标题投影；回退到会话目录名，避免整排「未命名」。
       const folder = baseName(session.cwd)
-      const label = session.title || folder || t('sidebar.untitled')
+      const label =
+        session.blank === true ? t('sidebar.newSession') : session.title || folder || t('sidebar.untitled')
       // 有活跃定时任务时自己画时钟（与官方 Schedule 标记同样的语义）；
       // 否则渲染官方行前座位（若宿主声明了该子插槽）。
       const scheduleCount = typeof session.scheduleCount === 'number' ? session.scheduleCount : 0
@@ -1841,9 +1842,11 @@ window.__ModuleLoader__.load({
           },
         },
         h('span', { className: 'dwo-srow-leading' }, leading),
-        h('span', {
-          className: `dwo-srow-dot${dotState === 'running' ? ' dwo-srow-dot-running' : dotState === 'done' ? ' dwo-srow-dot-done' : ''}`,
-        }),
+        dotState === 'idle'
+          ? null
+          : h('span', {
+              className: `dwo-srow-dot${dotState === 'running' ? ' dwo-srow-dot-running' : ' dwo-srow-dot-done'}`,
+            }),
         h('span', { className: 'dwo-srow-title', style: color ? { color: COLOR_HEX[color] } : undefined }, label),
         h('span', { className: 'dwo-srow-time' }, formatRelative(session.updatedAt)),
         h(

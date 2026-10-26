@@ -1725,6 +1725,8 @@ window.__ModuleLoader__.load({
       // 冷会话可能没有标题投影；回退到会话目录名，避免整排「未命名」。
       const folder = baseName(session.cwd)
       const label = session.title || folder || t('sidebar.untitled')
+      // 官方行前座位（Schedule 的时钟标记等）由本组件声明后重新渲染。
+      const leading = safeRenderSlot('sidebar.session.row.leading', { sessionId: session.id })
       return h(
         'div',
         {
@@ -1772,6 +1774,7 @@ window.__ModuleLoader__.load({
             if (event.key === 'Enter' && !archived && !broken) selectSession(session.id)
           },
         },
+        h('span', { className: 'dwo-srow-leading' }, leading),
         h('span', {
           className: `dwo-srow-dot${session.running ? ' dwo-srow-dot-running' : ''}`,
           style: color ? { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] } : undefined,
@@ -2094,6 +2097,11 @@ window.__ModuleLoader__.load({
                 session.updatedAt
                   ? h('div', { className: 'dwo-hovercard-meta' }, new Date(session.updatedAt).toLocaleString())
                   : null,
+                h(
+                  'div',
+                  { className: 'dwo-hovercard-slot' },
+                  safeRenderSlot('sidebar.session.row.hover', { sessionId: session.id }),
+                ),
               )
             })()
           : null,
@@ -2130,7 +2138,25 @@ window.__ModuleLoader__.load({
       }
     }
 
+    let sidebarSlots = null
+
+    /** 渲染本组件声明的子插槽；签名不符或贡献抛错时只降级，不影响自绘侧栏。 */
+    function safeRenderSlot(key, owner) {
+      try {
+        if (!sidebarSlots || typeof sidebarSlots.renderSlot !== 'function') return null
+        return sidebarSlots.renderSlot(key, owner)
+      } catch (error) {
+        try {
+          console.warn('[workspace-optimize] renderSlot failed', key, error)
+        } catch {
+          // 控制台不可用
+        }
+        return null
+      }
+    }
+
     function SidebarRoot(props) {
+      sidebarSlots = props
       return h(SidebarBoundary, null, h(SidebarBrowser, props))
     }
 
@@ -2362,6 +2388,7 @@ window.__ModuleLoader__.load({
 .dwo-hovercard{position:fixed;z-index:2147481900;width:280px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-elevated,#20242e);color:var(--dsw-alias-label-primary,#e8eaf0);border:1px solid color-mix(in srgb,currentColor 14%,transparent);box-shadow:0 14px 34px rgba(0,0,0,.4);pointer-events:none;font-size:12px;line-height:17px}
 .dwo-hovercard-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-hovercard-meta{font-size:11px;opacity:.62;word-break:break-all}
+.dwo-hovercard-slot:empty{display:none}
 .dwo-groups{display:flex;flex-direction:column;gap:2px;overflow:auto;flex:1 1 auto;min-height:0;padding:0 2px}
 .dwo-group{display:flex;flex-direction:column;gap:1px}
 .dwo-ws{display:flex;align-items:center;gap:4px;min-height:26px;padding:1px 4px;border-radius:6px}
@@ -2384,6 +2411,8 @@ window.__ModuleLoader__.load({
 .dwo-srow[data-dwo-drop="before"]{box-shadow:inset 0 2px 0 #60a5fa}
 .dwo-srow[data-dwo-drop="after"]{box-shadow:inset 0 -2px 0 #60a5fa}
 .dwo-srow-dot{width:7px;height:7px;border-radius:50%;border:1px solid color-mix(in srgb,currentColor 26%,transparent);flex:0 0 auto}
+.dwo-srow-leading{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:inherit;opacity:.75}
+.dwo-srow-leading:empty{display:none}
 .dwo-srow-dot-running{background:#34d399;border-color:#34d399;animation:dwo-pulse 1.2s ease-in-out infinite}
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -2477,7 +2506,19 @@ window.__ModuleLoader__.load({
             disposeBrowser = ctx.slots.inject('sidebar.workspaces', () =>
               // single 槽位按 priority 升序取第一个生效者；官方 occupant 是 0，
               // 所以覆盖必须用更小的值。
-              ctx.slots.register({ name: 'sidebar.workspaces', priority: -1 }, SidebarRoot),
+              ctx.slots.register(
+                {
+                  name: 'sidebar.workspaces',
+                  priority: -1,
+                  // 声明并渲染会话行的两个子插槽，让 Schedule 的时钟标记等
+                  // 官方贡献重新注册进来（这两个插槽没有 hookContext，声明成本低）。
+                  children: {
+                    'sidebar.session.row.leading': { kind: 'list', scope: 'root' },
+                    'sidebar.session.row.hover': { kind: 'list', scope: 'root' },
+                  },
+                },
+                SidebarRoot,
+              ),
             )
           } catch (error) {
             try {

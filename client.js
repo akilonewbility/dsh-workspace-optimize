@@ -1062,9 +1062,12 @@ window.__ModuleLoader__.load({
     function showNotification(event) {
       const fallbackName = typeof event.sessionId === 'string' ? event.sessionId.slice(0, 8) : ''
       const isComplete = event.kind === 'complete'
-      // 完成通知：标题 = 会话标题，正文 = 最终答复；其它类型保持「事件名 + 会话标题」。
-      const title = isComplete ? event.title || fallbackName : t(`notify.${event.kind}`)
-      const body = isComplete ? event.summary || '' : event.title || fallbackName
+      // 完成通知：标题固定「会话已完成」，正文第一行会话标题、第二行最终答复。
+      const title = isComplete ? t('notify.complete') : t(`notify.${event.kind}`)
+      const body = isComplete
+        ? [event.title, event.summary].filter((part) => typeof part === 'string' && part.length > 0).join('\n') ||
+          fallbackName
+        : event.title || fallbackName
       const onClick = () => openSession(event.sessionId)
       const fallback = () => pushToast(`${title}${body ? ` · ${body}` : ''}`)
 

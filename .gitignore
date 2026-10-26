@@ -4,3 +4,4 @@ workspace-optimize-state.json
 workspace-optimize-diag.json
 .dwo-acl-recovery/
 .DS_Store
+*.tar.gz

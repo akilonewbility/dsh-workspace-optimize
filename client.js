@@ -607,8 +607,10 @@ window.__ModuleLoader__.load({
     }
 
     async function refreshSidebar() {
-      // 等所有写操作落地再拉数据，避免中间状态覆盖本地乐观结果（回弹）。
+      // 等所有写操作落地、并确保 Host 已收到失效通知，再拉数据；
+      // 否则可能读到写操作前的中间快照并覆盖乐观更新（回弹）。
       await waitWritesDone()
+      await waitInvalidate()
       if (refreshingSidebar) {
         // 单飞期间的新请求：结束后再补一次，保证拿到最新数据
         pendingSidebarRefresh = true
@@ -736,12 +738,23 @@ window.__ModuleLoader__.load({
       }, delay)
     }
 
-    /** 通知 Host 失效侧栏快照（官方 Remote 写操作后调用，失败静默）。 */
+    let pendingInvalidate = null
+
+    /** 通知 Host 失效侧栏快照（官方 Remote 写操作后调用，失败静默）。返回可等待的 Promise。 */
     function invalidateSidebar(sessionId) {
-      void apiFetch('invalidate', {
+      pendingInvalidate = apiFetch('invalidate', {
         method: 'POST',
         body: JSON.stringify(sessionId ? { sessionId } : {}),
       }).catch(() => {})
+      return pendingInvalidate
+    }
+
+    /** 刷新前等待最近一次失效请求处理完毕，保证 Host 端缓存已标记 dirty。 */
+    async function waitInvalidate() {
+      if (!pendingInvalidate) return
+      const pending = pendingInvalidate
+      pendingInvalidate = null
+      await pending
     }
 
     /** 本地修改侧栏数据并立即重绘（乐观更新；后台刷新会校正）。 */

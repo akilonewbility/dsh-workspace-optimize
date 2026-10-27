@@ -570,8 +570,41 @@ window.__ModuleLoader__.load({
     let refreshingSidebar = null
     let sidebarSeq = 0
     let pendingSidebarRefresh = false
+    // 未完成的写操作计数：刷新必须等它们全部结束，否则会读到中间状态并覆盖乐观更新。
+    let pendingWrites = 0
+    let writeWaiters = []
+
+    function beginWrite() {
+      pendingWrites += 1
+    }
+
+    function endWrite() {
+      pendingWrites = Math.max(0, pendingWrites - 1)
+      if (pendingWrites === 0 && writeWaiters.length > 0) {
+        const waiters = writeWaiters.splice(0)
+        for (const resolve of waiters) resolve()
+      }
+    }
+
+    function waitWritesDone(timeoutMs = 3000) {
+      if (pendingWrites === 0) return Promise.resolve()
+      return new Promise((resolve) => {
+        const finish = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        const timer = setTimeout(() => {
+          const index = writeWaiters.indexOf(finish)
+          if (index >= 0) writeWaiters.splice(index, 1)
+          resolve()
+        }, timeoutMs)
+        writeWaiters.push(finish)
+      })
+    }
 
     async function refreshSidebar() {
+      // 等所有写操作落地再拉数据，避免中间状态覆盖本地乐观结果（回弹）。
+      await waitWritesDone()
       if (refreshingSidebar) {
         // 单飞期间的新请求：结束后再补一次，保证拿到最新数据
         pendingSidebarRefresh = true
@@ -883,6 +916,7 @@ window.__ModuleLoader__.load({
       if (!workspaces || typeof workspaces.archiveSession !== 'function') return
       // 先本地更新：连续快速归档时不排队等 Remote 往返。
       applyArchivedLocally(sessionId, true)
+      beginWrite()
       try {
         await workspaces.archiveSession(sessionId, { stopActivity: false })
         invalidateSidebar(sessionId)
@@ -893,6 +927,8 @@ window.__ModuleLoader__.load({
         invalidateSidebar(sessionId)
         scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -900,6 +936,7 @@ window.__ModuleLoader__.load({
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.unarchiveSession !== 'function') return
       applyArchivedLocally(sessionId, false)
+      beginWrite()
       try {
         await workspaces.unarchiveSession(sessionId)
         invalidateSidebar(sessionId)
@@ -909,6 +946,8 @@ window.__ModuleLoader__.load({
         invalidateSidebar(sessionId)
         scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -931,7 +970,13 @@ window.__ModuleLoader__.load({
       try {
         const path = await ui.pickDirectory()
         if (!path) return
-        const view = await workspaces.create({ path })
+        beginWrite()
+        let view
+        try {
+          view = await workspaces.create({ path })
+        } finally {
+          endWrite()
+        }
         const workspaceId = view?.id ?? view?.workspace?.id
         if (typeof workspaceId === 'string' && workspaceId.length > 0) {
           updateSidebar((sidebar) => ({
@@ -958,6 +1003,7 @@ window.__ModuleLoader__.load({
           workspace.id === workspaceId ? { ...workspace, title } : workspace,
         ),
       }))
+      beginWrite()
       try {
         await workspaces.rename(workspaceId, title)
         invalidateSidebar()
@@ -966,6 +1012,8 @@ window.__ModuleLoader__.load({
         invalidateSidebar()
         scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -974,6 +1022,7 @@ window.__ModuleLoader__.load({
         ...sidebar,
         sessions: (sidebar.sessions ?? []).map((session) => (session.id === sessionId ? { ...session, title } : session)),
       }))
+      beginWrite()
       try {
         await apiFetch('rename', { method: 'POST', body: JSON.stringify({ sessionId, title }) })
         invalidateSidebar(sessionId)
@@ -982,6 +1031,8 @@ window.__ModuleLoader__.load({
         invalidateSidebar(sessionId)
         scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -994,12 +1045,15 @@ window.__ModuleLoader__.load({
 
     async function togglePinned(sessionId) {
       const pinned = isPinned(sessionId)
+      beginWrite()
       try {
         await apiFetch('pin', { method: 'POST', body: JSON.stringify({ sessionId, pinned: !pinned }) })
         invalidateSidebar()
         scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -1078,6 +1132,7 @@ window.__ModuleLoader__.load({
         // 先本地重排，界面立即反映；Remote 写入放后台。
         applyOrderLocally(target.workspaceId, target.sessionId, target.beforeSessionId)
         closeDialog()
+        beginWrite()
         try {
           await workspaces.insertSessionBefore(target.workspaceId, target.sessionId, target.beforeSessionId)
           invalidateSidebar()
@@ -1087,6 +1142,8 @@ window.__ModuleLoader__.load({
           invalidateSidebar()
           scheduleSidebarRefresh({ debounce: true })
           pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+        } finally {
+          endWrite()
         }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
@@ -1104,6 +1161,7 @@ window.__ModuleLoader__.load({
     }
 
     async function moveSession(sessionId, targetWorkspaceId) {
+      beginWrite()
       try {
         await apiFetch('move', {
           method: 'POST',
@@ -1115,6 +1173,8 @@ window.__ModuleLoader__.load({
         scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -1902,6 +1962,7 @@ window.__ModuleLoader__.load({
       if (!workspaces || typeof workspaces.insertSessionBefore !== 'function') return
       applyOrderLocally(workspace.id, sourceId, before)
       setOrderMode('manual')
+      beginWrite()
       try {
         await workspaces.insertSessionBefore(workspace.id, sourceId, before)
         invalidateSidebar()
@@ -1910,6 +1971,8 @@ window.__ModuleLoader__.load({
         invalidateSidebar()
         scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 

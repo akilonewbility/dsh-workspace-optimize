@@ -2100,6 +2100,7 @@ window.__ModuleLoader__.load({
         invalidateSidebar()
         scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        orderOverrides.delete(workspace.id)
         invalidateSidebar()
         scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)

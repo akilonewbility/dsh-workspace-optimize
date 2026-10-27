@@ -625,7 +625,7 @@ window.__ModuleLoader__.load({
         .then((data) => {
           if (seq !== sidebarSeq) return data
           if (data && data.ok !== false) {
-            store.sidebar = mergeArchivedOverrides(data)
+            store.sidebar = mergeArchivedOverrides(mergeOrderOverrides(data))
             store.sidebarError = ''
           } else {
             store.sidebarError = (data && data.error) || '侧栏数据无效'
@@ -767,7 +767,10 @@ window.__ModuleLoader__.load({
       bump()
     }
 
-    /** 在本地按「插到某会话之前（undefined 表示末尾）」重排会话顺序。 */
+    /** 本地排序意图：Host 写入队列未处理完时，刷新结果不得覆盖它（防回弹）。 */
+    const orderOverrides = new Map()
+
+    /** 在本地按「插到某会话之前（undefined 表示末尾）」重排会话顺序，并记录目标顺序。 */
     function applyOrderLocally(workspaceId, sessionId, beforeSessionId) {
       updateSidebar((sidebar) => ({
         ...sidebar,
@@ -777,9 +780,33 @@ window.__ModuleLoader__.load({
           const index = beforeSessionId ? ids.indexOf(beforeSessionId) : -1
           if (index >= 0) ids.splice(index, 0, sessionId)
           else ids.push(sessionId)
+          orderOverrides.set(workspaceId, ids)
           return { ...workspace, sessionIds: ids }
         }),
       }))
+    }
+
+    /**
+     * 排序也应用本地意图覆盖：与目标顺序不一致时保留本地顺序，
+     * 直到 Host 顺序与目标一致（或长度变化，说明有新会话，交还 Host）。
+     */
+    function mergeOrderOverrides(data) {
+      if (!data || orderOverrides.size === 0) return data
+      const workspaces = (Array.isArray(data.workspaces) ? data.workspaces : []).map((workspace) => {
+        const target = orderOverrides.get(workspace.id)
+        if (!target) return workspace
+        if (!Array.isArray(workspace.sessionIds) || workspace.sessionIds.length !== target.length) {
+          orderOverrides.delete(workspace.id)
+          return workspace
+        }
+        const same = target.every((id, index) => workspace.sessionIds[index] === id)
+        if (same) {
+          orderOverrides.delete(workspace.id)
+          return workspace
+        }
+        return { ...workspace, sessionIds: target }
+      })
+      return { ...data, workspaces }
     }
 
     let sidebarModeSync = null
@@ -1183,6 +1210,7 @@ window.__ModuleLoader__.load({
           pushToast(t('toast.orderDone'))
           scheduleSidebarRefresh({ debounce: true })
         } catch (error) {
+          orderOverrides.delete(target.workspaceId)
           invalidateSidebar()
           scheduleSidebarRefresh({ debounce: true })
           pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)

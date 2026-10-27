@@ -568,13 +568,21 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------------ 自绘侧栏数据
 
     let refreshingSidebar = null
+    let sidebarSeq = 0
+    let pendingSidebarRefresh = false
 
     async function refreshSidebar() {
-      if (refreshingSidebar) return refreshingSidebar
+      if (refreshingSidebar) {
+        // 单飞期间的新请求：结束后再补一次，保证拿到最新数据
+        pendingSidebarRefresh = true
+        return refreshingSidebar
+      }
+      const seq = ++sidebarSeq
       store.sidebarLoading = true
       bump()
       refreshingSidebar = apiFetch('sidebar')
         .then((data) => {
+          if (seq !== sidebarSeq) return data
           if (data && data.ok !== false) {
             store.sidebar = data
             store.sidebarError = ''
@@ -584,12 +592,16 @@ window.__ModuleLoader__.load({
           return data
         })
         .catch((error) => {
-          store.sidebarError = error instanceof Error ? error.message : String(error)
+          if (seq === sidebarSeq) store.sidebarError = error instanceof Error ? error.message : String(error)
         })
         .finally(() => {
           store.sidebarLoading = false
           refreshingSidebar = null
           bump()
+          if (pendingSidebarRefresh) {
+            pendingSidebarRefresh = false
+            void refreshSidebar()
+          }
         })
       return refreshingSidebar
     }
@@ -665,21 +677,57 @@ window.__ModuleLoader__.load({
     let sidebarRefreshTimer = null
     let sidebarLastRefresh = 0
 
-    function scheduleSidebarRefresh() {
-      // 首个事件立即刷新（让黄灯尽快出现），后续事件在窗口内合并
+    /**
+     * 状态事件用「首个立即刷新」尽快反映黄灯/绿灯；
+     * 写操作传 { debounce: true }，等用户停止操作 300ms 后合并成一次刷新。
+     */
+    function scheduleSidebarRefresh(options = {}) {
+      const debounceOnly = options && options.debounce === true
       const now = Date.now()
       const elapsed = now - sidebarLastRefresh
-      if (elapsed >= 300) {
+      if (!debounceOnly && elapsed >= 300) {
         sidebarLastRefresh = now
         if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
         return
       }
       if (sidebarRefreshTimer) return
+      const delay = debounceOnly ? 300 : Math.max(0, 300 - elapsed)
       sidebarRefreshTimer = setTimeout(() => {
         sidebarRefreshTimer = null
         sidebarLastRefresh = Date.now()
         if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
-      }, 300 - elapsed)
+      }, delay)
+    }
+
+    /** 通知 Host 失效侧栏快照（官方 Remote 写操作后调用，失败静默）。 */
+    function invalidateSidebar(sessionId) {
+      void apiFetch('invalidate', {
+        method: 'POST',
+        body: JSON.stringify(sessionId ? { sessionId } : {}),
+      }).catch(() => {})
+    }
+
+    /** 本地修改侧栏数据并立即重绘（乐观更新；后台刷新会校正）。 */
+    function updateSidebar(mutator) {
+      const sidebar = store.sidebar
+      if (!sidebar) return
+      store.sidebar = mutator(sidebar)
+      bump()
+    }
+
+    /** 在本地按「插到某会话之前（undefined 表示末尾）」重排会话顺序。 */
+    function applyOrderLocally(workspaceId, sessionId, beforeSessionId) {
+      updateSidebar((sidebar) => ({
+        ...sidebar,
+        workspaces: (sidebar.workspaces ?? []).map((workspace) => {
+          if (workspace.id !== workspaceId) return workspace
+          const ids = workspace.sessionIds.filter((id) => id !== sessionId)
+          const index = beforeSessionId ? ids.indexOf(beforeSessionId) : -1
+          if (index >= 0) ids.splice(index, 0, sessionId)
+          else ids.push(sessionId)
+          return { ...workspace, sessionIds: ids }
+        }),
+      }))
     }
 
     let sidebarModeSync = null
@@ -833,12 +881,17 @@ window.__ModuleLoader__.load({
     async function archiveSession(sessionId) {
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.archiveSession !== 'function') return
+      // 先本地更新：连续快速归档时不排队等 Remote 往返。
+      applyArchivedLocally(sessionId, true)
       try {
         await workspaces.archiveSession(sessionId, { stopActivity: false })
-        applyArchivedLocally(sessionId, true)
+        invalidateSidebar(sessionId)
         pushToast(t('sidebar.archived'))
-        void refreshSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        applyArchivedLocally(sessionId, false)
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
     }
@@ -846,11 +899,15 @@ window.__ModuleLoader__.load({
     async function unarchiveSession(sessionId) {
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.unarchiveSession !== 'function') return
+      applyArchivedLocally(sessionId, false)
       try {
         await workspaces.unarchiveSession(sessionId)
-        applyArchivedLocally(sessionId, false)
-        void refreshSidebar()
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        applyArchivedLocally(sessionId, true)
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
     }
@@ -874,8 +931,19 @@ window.__ModuleLoader__.load({
       try {
         const path = await ui.pickDirectory()
         if (!path) return
-        await workspaces.create({ path })
-        await refreshSidebar()
+        const view = await workspaces.create({ path })
+        const workspaceId = view?.id ?? view?.workspace?.id
+        if (typeof workspaceId === 'string' && workspaceId.length > 0) {
+          updateSidebar((sidebar) => ({
+            ...sidebar,
+            workspaces: [
+              ...(sidebar.workspaces ?? []),
+              { id: workspaceId, title: baseName(path), path, sessionIds: [] },
+            ],
+          }))
+        }
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -884,19 +952,35 @@ window.__ModuleLoader__.load({
     async function renameWorkspace(workspaceId, title) {
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.rename !== 'function') return
+      updateSidebar((sidebar) => ({
+        ...sidebar,
+        workspaces: (sidebar.workspaces ?? []).map((workspace) =>
+          workspace.id === workspaceId ? { ...workspace, title } : workspace,
+        ),
+      }))
       try {
         await workspaces.rename(workspaceId, title)
-        await refreshSidebar()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
     async function renameSession(sessionId, title) {
+      updateSidebar((sidebar) => ({
+        ...sidebar,
+        sessions: (sidebar.sessions ?? []).map((session) => (session.id === sessionId ? { ...session, title } : session)),
+      }))
       try {
         await apiFetch('rename', { method: 'POST', body: JSON.stringify({ sessionId, title }) })
-        await refreshSidebar()
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
     }
@@ -912,7 +996,8 @@ window.__ModuleLoader__.load({
       const pinned = isPinned(sessionId)
       try {
         await apiFetch('pin', { method: 'POST', body: JSON.stringify({ sessionId, pinned: !pinned }) })
-        await refreshSidebar()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -990,9 +1075,19 @@ window.__ModuleLoader__.load({
           pushToast(t('toast.noOrderApi'))
           return
         }
-        await workspaces.insertSessionBefore(target.workspaceId, target.sessionId, target.beforeSessionId)
-        pushToast(t('toast.orderDone'))
+        // 先本地重排，界面立即反映；Remote 写入放后台。
+        applyOrderLocally(target.workspaceId, target.sessionId, target.beforeSessionId)
         closeDialog()
+        try {
+          await workspaces.insertSessionBefore(target.workspaceId, target.sessionId, target.beforeSessionId)
+          invalidateSidebar()
+          pushToast(t('toast.orderDone'))
+          scheduleSidebarRefresh({ debounce: true })
+        } catch (error) {
+          invalidateSidebar()
+          scheduleSidebarRefresh({ debounce: true })
+          pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+        }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -1016,6 +1111,8 @@ window.__ModuleLoader__.load({
         })
         pushToast(t('toast.moveDone'))
         closeDialog()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -1803,11 +1900,15 @@ window.__ModuleLoader__.load({
       const before = mode === 'after' ? ids[index + 1] : ids[index]
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.insertSessionBefore !== 'function') return
+      applyOrderLocally(workspace.id, sourceId, before)
+      setOrderMode('manual')
       try {
         await workspaces.insertSessionBefore(workspace.id, sourceId, before)
-        setOrderMode('manual')
-        await refreshSidebar()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
     }

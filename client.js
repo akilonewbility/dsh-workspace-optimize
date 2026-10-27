@@ -122,6 +122,7 @@ window.__ModuleLoader__.load({
         'sidebar.broken': '日志不可用',
         'sidebar.running': '运行中',
         'sidebar.pendingApproval': '等待审批',
+        'sidebar.pendingPlan': '计划待审',
         'sidebar.pendingQuestion': '等待回答',
         'sidebar.done': '已完成',
         'favorites.title': '收藏',
@@ -259,6 +260,7 @@ window.__ModuleLoader__.load({
         'sidebar.broken': 'log unavailable',
         'sidebar.running': 'Running',
         'sidebar.pendingApproval': 'Waiting for approval',
+        'sidebar.pendingPlan': 'Plan awaiting review',
         'sidebar.pendingQuestion': 'Waiting for answer',
         'sidebar.done': 'Done',
         'favorites.title': 'Favorites',
@@ -1330,8 +1332,9 @@ window.__ModuleLoader__.load({
       const fallbackName = typeof event.sessionId === 'string' ? event.sessionId.slice(0, 8) : ''
       const isComplete = event.kind === 'complete'
       const isWaiting = event.kind === 'waiting'
-      // 完成：会话标题 + 最终答复；等待交互：会话标题 + 所需权限/问题标题。
-      const title = t(`notify.${event.kind}`)
+      const isPlan = isWaiting && event.detail === 'plan'
+      // 完成：会话标题 + 最终答复；计划待审：单独标题；等待交互：会话标题 + 所需权限/问题标题。
+      const title = isPlan ? t('sidebar.pendingPlan') : t(`notify.${event.kind}`)
       const partsForBody = isComplete
         ? [event.title, event.summary]
         : isWaiting
@@ -2164,7 +2167,16 @@ window.__ModuleLoader__.load({
       // 绿灯由本地 complete 事件计时，不依赖 /sidebar 的 completedAt 回填，
       // 避免刷新耗时吃掉 2 秒窗口。
       const flashing = (completionFlash.get(session.id) ?? 0) > Date.now()
-      const dotState = pending ? 'pending' : session.running ? 'running' : flashing ? 'done' : 'idle'
+      const dotState =
+        pending === 'plan'
+          ? 'plan'
+          : pending
+            ? 'pending'
+            : session.running
+              ? 'running'
+              : flashing
+                ? 'done'
+                : 'idle'
       return h(
         'div',
         {
@@ -2223,11 +2235,13 @@ window.__ModuleLoader__.load({
           className: `dwo-srow-dot${
             dotState === 'pending'
               ? ' dwo-srow-dot-pending'
-              : dotState === 'running'
-                ? ' dwo-srow-dot-running'
-                : dotState === 'done'
-                  ? ' dwo-srow-dot-done'
-                  : ' dwo-srow-dot-idle'
+              : dotState === 'plan'
+                ? ' dwo-srow-dot-plan'
+                : dotState === 'running'
+                  ? ' dwo-srow-dot-running'
+                  : dotState === 'done'
+                    ? ' dwo-srow-dot-done'
+                    : ' dwo-srow-dot-idle'
           }`,
         }),
         h('span', { className: 'dwo-srow-title', style: color ? { color: COLOR_HEX[color] } : undefined }, label),
@@ -2235,16 +2249,24 @@ window.__ModuleLoader__.load({
           'span',
           {
             className: `dwo-srow-time${
-              dotState === 'pending' ? ' dwo-srow-time-pending' : dotState === 'done' ? ' dwo-srow-time-done' : ''
+              dotState === 'pending'
+                ? ' dwo-srow-time-pending'
+                : dotState === 'plan'
+                  ? ' dwo-srow-time-plan'
+                  : dotState === 'done'
+                    ? ' dwo-srow-time-done'
+                    : ''
             }`,
           },
           dotState === 'pending'
             ? pending === 'approval'
               ? t('sidebar.pendingApproval')
               : t('sidebar.pendingQuestion')
-            : dotState === 'done'
-              ? t('sidebar.done')
-              : formatRelative(session.updatedAt),
+            : dotState === 'plan'
+              ? t('sidebar.pendingPlan')
+              : dotState === 'done'
+                ? t('sidebar.done')
+                : formatRelative(session.updatedAt),
         ),
         h(
           'span',
@@ -2601,9 +2623,11 @@ window.__ModuleLoader__.load({
               const meta = [
                 session.pending === 'approval'
                   ? t('sidebar.pendingApproval')
-                  : session.pending === 'question'
-                    ? t('sidebar.pendingQuestion')
-                    : '',
+                  : session.pending === 'plan'
+                    ? t('sidebar.pendingPlan')
+                    : session.pending === 'question'
+                      ? t('sidebar.pendingQuestion')
+                      : '',
                 session.running ? t('sidebar.running') : '',
                 session.scheduleCount > 0 ? t('sidebar.schedules', { count: session.scheduleCount }) : '',
                 session.archived ? t('sidebar.archived') : '',
@@ -3019,11 +3043,13 @@ window.__ModuleLoader__.load({
 .dwo-schedule-mark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:0 0 auto;color:#60a5fa}
 .dwo-srow-dot-running{background:#60a5fa;animation:dwo-pulse 1.2s ease-in-out infinite}
 .dwo-srow-dot-pending{background:#fbbf24;animation:dwo-pulse 1.2s ease-in-out infinite}
+.dwo-srow-dot-plan{background:#fb923c;animation:dwo-pulse 1.2s ease-in-out infinite}
 .dwo-srow-dot-done{background:#34d399}
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-srow-time{font-size:10.5px;opacity:.45;flex:0 0 auto;margin-left:auto;padding-left:6px}
 .dwo-srow-time-pending{color:#fbbf24;opacity:1}
+.dwo-srow-time-plan{color:#fb923c;opacity:1}
 .dwo-srow-time-done{color:#34d399;opacity:1}
 .dwo-srow-running{width:6px;height:6px;border-radius:50%;background:#34d399;flex:0 0 auto}
 .dwo-group-empty{padding:8px 10px;font-size:11.5px;opacity:.5}

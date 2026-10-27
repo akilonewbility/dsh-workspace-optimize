@@ -320,6 +320,8 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------------ 状态仓库
 
     const listeners = new Set()
+    /** 本地归档意图：Host 队列尚未处理完时，刷新结果不得覆盖它（防回弹）。 */
+    const archivedOverrides = new Map()
     /** 完成后的绿灯只闪 2 秒：sessionId -> 过期时间戳。 */
     const completionFlash = new Map()
     let version = 0
@@ -623,7 +625,7 @@ window.__ModuleLoader__.load({
         .then((data) => {
           if (seq !== sidebarSeq) return data
           if (data && data.ok !== false) {
-            store.sidebar = data
+            store.sidebar = mergeArchivedOverrides(data)
             store.sidebarError = ''
           } else {
             store.sidebarError = (data && data.error) || '侧栏数据无效'
@@ -916,6 +918,7 @@ window.__ModuleLoader__.load({
 
     /** 归档/恢复后先本地更新，让列表立刻按当前过滤隐藏或出现，再后台刷新校正。 */
     function applyArchivedLocally(sessionId, archived) {
+      archivedOverrides.set(sessionId, archived)
       const sidebar = store.sidebar
       if (!sidebar || !Array.isArray(sidebar.sessions)) return
       const sessions = sidebar.sessions.map((session) =>
@@ -926,6 +929,30 @@ window.__ModuleLoader__.load({
       else archivedIds.delete(sessionId)
       store.sidebar = { ...sidebar, sessions, archivedSessionIds: [...archivedIds] }
       bump()
+    }
+
+    /**
+     * 把 Host 返回的快照与本地归档意图合并：
+     * 不一致时保留本地目标（避免回弹），直到 Host 状态与目标一致才解除。
+     */
+    function mergeArchivedOverrides(data) {
+      if (!data || archivedOverrides.size === 0) return data
+      const sessions = (Array.isArray(data.sessions) ? data.sessions : []).map((session) => {
+        const target = archivedOverrides.get(session.id)
+        if (target === undefined) return session
+        if (session.archived === target) {
+          archivedOverrides.delete(session.id)
+          return session
+        }
+        return { ...session, archived: target }
+      })
+      if (archivedOverrides.size === 0) return { ...data, sessions }
+      const ids = new Set(Array.isArray(data.archivedSessionIds) ? data.archivedSessionIds : [])
+      for (const [id, target] of archivedOverrides) {
+        if (target) ids.add(id)
+        else ids.delete(id)
+      }
+      return { ...data, sessions, archivedSessionIds: [...ids] }
     }
 
     async function archiveSession(sessionId) {

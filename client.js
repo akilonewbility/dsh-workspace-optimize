@@ -153,6 +153,8 @@ window.__ModuleLoader__.load({
         'session.copyId': '复制会话 ID',
         'session.deleteUnsupported': '官方不支持删除会话，请使用归档。',
         'session.menu': '更多操作',
+        'session.archive': '归档会话',
+        'session.unarchive': '恢复会话',
         'session.color': '设置颜色…',
         'session.move': '移动到工作区…',
         'settings.sidebarMode': '侧栏样式',
@@ -288,6 +290,8 @@ window.__ModuleLoader__.load({
         'session.copyId': 'Copy session ID',
         'session.deleteUnsupported': 'Session deletion is not supported; use archive instead.',
         'session.menu': 'More actions',
+        'session.archive': 'Archive session',
+        'session.unarchive': 'Restore session',
         'session.color': 'Set color…',
         'session.move': 'Move to workspace…',
         'settings.sidebarMode': 'Sidebar style',
@@ -1403,6 +1407,66 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function ArchiveIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          'aria-hidden': true,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.15,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        },
+        h('path', { d: 'M2.4 3.4h11.2v3.1H2.4z' }),
+        h('path', { d: 'M3.5 6.5h9v6.6h-9z' }),
+        h('path', { d: 'M8 8.3v3.2M6.5 10.2L8 11.7l1.5-1.5' }),
+      )
+    }
+
+    function RestoreIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          'aria-hidden': true,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.15,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        },
+        h('path', { d: 'M2.4 3.4h11.2v3.1H2.4z' }),
+        h('path', { d: 'M3.5 6.5h9v6.6h-9z' }),
+        h('path', { d: 'M8 11.6V8.4M6.5 9.8L8 8.3l1.5 1.5' }),
+      )
+    }
+
+    function PlusIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          'aria-hidden': true,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.35,
+          strokeLinecap: 'round',
+        },
+        h('path', { d: 'M8 3.2v9.6M3.2 8h9.6' }),
+      )
+    }
+
     function ColorIcon() {
       return h(
         'svg',
@@ -2135,6 +2199,21 @@ window.__ModuleLoader__.load({
             {
               type: 'button',
               className: 'dwo-icon-button',
+              title: archived ? t('session.unarchive') : t('session.archive'),
+              'aria-label': archived ? t('session.unarchive') : t('session.archive'),
+              onClick: (event) => {
+                event.stopPropagation()
+                if (archived) void unarchiveSession(session.id)
+                else void archiveSession(session.id)
+              },
+            },
+            archived ? h(RestoreIcon, { size: 13 }) : h(ArchiveIcon, { size: 13 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
               title: t('session.menu'),
               'aria-label': t('session.menu'),
               onClick: (event) => {
@@ -2236,6 +2315,20 @@ window.__ModuleLoader__.load({
                 onClick: () => void toggleWorkspaceFavorite(workspace.id),
               },
               h(StarIcon, { filled: favorite, size: 12 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dwo-icon-button',
+                title: t('sidebar.newSession'),
+                'aria-label': t('sidebar.newSession'),
+                onClick: (event) => {
+                  event.stopPropagation()
+                  void startSessionInWorkspace(workspace.id)
+                },
+              },
+              h(PlusIcon, { size: 12 }),
             ),
             h(
               'button',

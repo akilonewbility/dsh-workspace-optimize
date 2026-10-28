@@ -36,6 +36,13 @@ window.__ModuleLoader__.load({
       return luminance > 0.55 ? '#111111' : '#ffffff'
     }
 
+    /** 颜色值可能是预设名或自定义 #rrggbb，统一解析成十六进制。 */
+    function colorHexOf(color) {
+      if (typeof color !== 'string' || color.length === 0) return ''
+      if (color.startsWith('#')) return color
+      return COLOR_HEX[color] ?? ''
+    }
+
     const DICT = {
       zh: {
         'fav.add': '收藏会话',
@@ -44,6 +51,7 @@ window.__ModuleLoader__.load({
         'color.menu': '设置颜色…',
         'color.title': '设置颜色',
         'color.clear': '清除颜色',
+        'color.custom': '自定义颜色',
         'order.menu': '排序与置顶…',
         'order.title': '排序与置顶',
         'order.pin': '置顶',
@@ -183,6 +191,7 @@ window.__ModuleLoader__.load({
         'color.menu': 'Set color…',
         'color.title': 'Set color',
         'color.clear': 'Clear color',
+        'color.custom': 'Custom color',
         'order.menu': 'Order and pin…',
         'order.title': 'Order and pin',
         'order.pin': 'Pin to top',
@@ -809,6 +818,41 @@ window.__ModuleLoader__.load({
       }))
     }
 
+    /** 本地移动工作区顺序（插到 beforeWorkspaceId 之前，省略则追加）。 */
+    function applyWorkspaceOrderLocally(workspaceId, beforeWorkspaceId) {
+      updateSidebar((sidebar) => {
+        const rows = [...(sidebar.workspaces ?? [])]
+        const from = rows.findIndex((row) => row.id === workspaceId)
+        if (from < 0) return sidebar
+        const [moved] = rows.splice(from, 1)
+        if (!moved) return sidebar
+        const to = beforeWorkspaceId ? rows.findIndex((row) => row.id === beforeWorkspaceId) : -1
+        if (to >= 0) rows.splice(to, 0, moved)
+        else rows.push(moved)
+        return { ...sidebar, workspaces: rows }
+      })
+    }
+
+    /** 拖动排序工作区：本地先行，再持久化到宿主 registry 顺序。 */
+    async function moveWorkspaceOrder(workspaceId, beforeWorkspaceId) {
+      applyWorkspaceOrderLocally(workspaceId, beforeWorkspaceId)
+      beginWrite()
+      try {
+        await apiFetch('workspace-order', {
+          method: 'POST',
+          body: JSON.stringify({ workspaceId, beforeWorkspaceId }),
+        })
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
+      } catch (error) {
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
+      }
+    }
+
     /**
      * 排序也应用本地意图覆盖：与目标顺序不一致时保留本地顺序，
      * 直到 Host 顺序与目标一致（或长度变化，说明有新会话，交还 Host）。
@@ -1187,24 +1231,45 @@ window.__ModuleLoader__.load({
       }
     }
 
-    async function setColor(sessionId, color) {
+    async function setColor(sessionId, color, options = {}) {
       try {
         await apiFetch('color', { method: 'POST', body: JSON.stringify({ sessionId, color }) })
         await refreshState()
-        closeDialog()
+        if (options.close !== false) closeDialog()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
+    }
+
+    let colorTimer = null
+
+    /** 自定义取色器拖动时节流保存，窗口保持打开。 */
+    function queueColor(sessionId, color) {
+      if (colorTimer) clearTimeout(colorTimer)
+      colorTimer = setTimeout(() => {
+        colorTimer = null
+        void setColor(sessionId, color, { close: false })
+      }, 150)
     }
 
     async function setPriority(sessionId, priority) {
       try {
         await apiFetch('priority', { method: 'POST', body: JSON.stringify({ sessionId, priority }) })
         await refreshState()
-        closeDialog()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
+    }
+
+    let priorityTimer = null
+
+    /** 滑块拖动时节流保存，窗口保持打开。 */
+    function queuePriority(sessionId, priority) {
+      if (priorityTimer) clearTimeout(priorityTimer)
+      priorityTimer = setTimeout(() => {
+        priorityTimer = null
+        void setPriority(sessionId, priority)
+      }, 150)
     }
 
     async function applyOrder(sessionId, action) {
@@ -1769,7 +1834,7 @@ window.__ModuleLoader__.load({
         'span',
         {
           className: 'dwo-mark',
-          style: { background: color ? COLOR_HEX[color] : 'transparent' },
+          style: { background: color ? colorHexOf(color) : 'transparent' },
           title: color ? t(`color.name.${color}`) : t('fav.label'),
         },
         favorite ? h(StarIcon, { filled: true, size: 9 }) : null,
@@ -1795,6 +1860,9 @@ window.__ModuleLoader__.load({
       const current = props.current
       const snap = useSnapshot()
       const priority = snap.priorities[sessionId]
+      // 工作区也复用这个面板，但没有优先级语义。
+      const isWorkspace = !(snap.sidebar?.sessions ?? []).some((session) => session.id === sessionId)
+      const customValue = colorHexOf(current) || '#60a5fa'
       return h(
         DialogShell,
         { title: t('color.title') },
@@ -1806,7 +1874,7 @@ window.__ModuleLoader__.load({
               key: color,
               type: 'button',
               className: `dwo-swatch${current === color ? ' dwo-swatch-active' : ''}`,
-              style: { background: COLOR_HEX[color] },
+              style: { background: colorHexOf(color) },
               title: t(`color.name.${color}`),
               'aria-label': t(`color.name.${color}`),
               onClick: () => void setColor(sessionId, color),
@@ -1815,25 +1883,36 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
+          { className: 'dwo-custom-color' },
+          h('span', { className: 'dwo-label' }, t('color.custom')),
+          h('input', {
+            type: 'color',
+            className: 'dwo-color-input',
+            value: customValue,
+            onChange: (event) => queueColor(sessionId, event.target.value),
+          }),
+          h('span', { className: 'dwo-hint' }, colorHexOf(current) || '—'),
+        ),
+        h(
+          'div',
           { className: 'dwo-dialog-actions' },
           h('button', { type: 'button', className: 'dwo-button', onClick: () => void setColor(sessionId, null) }, t('color.clear')),
-          h(
-            'div',
-            { className: 'dwo-priority-row' },
-            h('span', { className: 'dwo-label' }, t('priority.value', { value: typeof priority === 'number' ? priority : '—' })),
-            h(
-              'input',
-              {
-                type: 'range',
-                min: 0,
-                max: 100,
-                step: 1,
-                value: typeof priority === 'number' ? priority : 50,
-                className: 'dwo-range',
-                onChange: (event) => void setPriority(sessionId, Number(event.target.value)),
-              },
-            ),
-          ),
+          isWorkspace
+            ? null
+            : h(
+                'div',
+                { className: 'dwo-priority-row' },
+                h('span', { className: 'dwo-label' }, t('priority.value', { value: typeof priority === 'number' ? priority : '—' })),
+                h('input', {
+                  type: 'range',
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  value: typeof priority === 'number' ? priority : 50,
+                  className: 'dwo-range',
+                  onChange: (event) => queuePriority(sessionId, Number(event.target.value)),
+                }),
+              ),
         ),
       )
     }
@@ -2113,6 +2192,7 @@ window.__ModuleLoader__.load({
     }
 
     let dragging = null
+    let draggingWorkspace = null
 
     async function moveRelative(sourceId, targetId, mode) {
       if (!sourceId || !targetId || sourceId === targetId) return
@@ -2274,7 +2354,7 @@ window.__ModuleLoader__.load({
                     : ' dwo-srow-dot-idle'
           }`,
         }),
-        h('span', { className: 'dwo-srow-title', style: color ? { color: COLOR_HEX[color] } : undefined }, label),
+        h('span', { className: 'dwo-srow-title', style: color ? { color: colorHexOf(color) } : undefined }, label),
         h(
           'span',
           {
@@ -2391,7 +2471,7 @@ window.__ModuleLoader__.load({
       const title = workspace.title || workspace.path || workspace.id
       const highlight = snap.settings.workspaceHighlight === true
       const pill = highlight && Boolean(color)
-      const accent = color ? COLOR_HEX[color] : ''
+      const accent = color ? colorHexOf(color) : ''
       const pillText = accent ? readableTextColor(accent) : ''
       return h(
         'div',
@@ -2404,6 +2484,49 @@ window.__ModuleLoader__.load({
           {
             className: 'dwo-ws',
             style: { paddingLeft: `${4 + depth * 12}px` },
+            draggable: true,
+            onDragStart: (event) => {
+              if (event.target && event.target.closest && event.target.closest('.dwo-ws-fold, .dwo-icon-button')) {
+                event.preventDefault()
+                return
+              }
+              draggingWorkspace = { id: workspace.id }
+              try {
+                event.dataTransfer?.setData('text/plain', workspace.id)
+              } catch {
+                // 某些环境不允许设置拖拽数据
+              }
+            },
+            onDragOver: (event) => {
+              if (!draggingWorkspace || draggingWorkspace.id === workspace.id) return
+              event.preventDefault()
+              const rect = event.currentTarget.getBoundingClientRect()
+              event.currentTarget.dataset.dwoDrop = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+            },
+            onDragLeave: (event) => {
+              delete event.currentTarget.dataset.dwoDrop
+            },
+            onDrop: (event) => {
+              event.preventDefault()
+              const source = draggingWorkspace
+              draggingWorkspace = null
+              delete event.currentTarget.dataset.dwoDrop
+              if (!source || source.id === workspace.id) return
+              const rect = event.currentTarget.getBoundingClientRect()
+              const after = event.clientY > rect.top + rect.height / 2
+              let beforeWorkspaceId
+              if (after) {
+                const rows = store.sidebar?.workspaces ?? []
+                const index = rows.findIndex((row) => row.id === workspace.id)
+                beforeWorkspaceId = index >= 0 ? rows[index + 1]?.id : undefined
+              } else {
+                beforeWorkspaceId = workspace.id
+              }
+              void moveWorkspaceOrder(source.id, beforeWorkspaceId)
+            },
+            onDragEnd: () => {
+              draggingWorkspace = null
+            },
             onDoubleClick: (event) => {
               if (event.target && event.target.closest && event.target.closest('.dwo-ws-fold, .dwo-icon-button')) return
               toggleFold(workspace.id)
@@ -2446,7 +2569,7 @@ window.__ModuleLoader__.load({
                 color
                   ? h('span', {
                       className: 'dwo-ws-dot',
-                      style: { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] },
+                      style: { background: colorHexOf(color), borderColor: colorHexOf(color) },
                     })
                   : null,
                 h('span', { className: 'dwo-ws-title' }, title),
@@ -3022,6 +3145,8 @@ window.__ModuleLoader__.load({
 .dwo-icon-button{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:18px;line-height:1;cursor:pointer;opacity:.7}
 .dwo-icon-button:hover{background:color-mix(in srgb,currentColor 12%,transparent);opacity:1}
 .dwo-swatches{display:grid;grid-template-columns:repeat(9,1fr);gap:8px}
+.dwo-custom-color{display:flex;align-items:center;gap:10px}
+.dwo-color-input{width:44px;height:26px;padding:0;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;background:transparent;cursor:pointer}
 .dwo-swatch{width:100%;aspect-ratio:1;border:2px solid transparent;border-radius:50%;cursor:pointer;padding:0}
 .dwo-swatch-active{border-color:currentColor;box-shadow:0 0 0 2px color-mix(in srgb,currentColor 24%,transparent)}
 .dwo-dialog-actions{display:flex;flex-direction:column;gap:12px}
@@ -3100,6 +3225,8 @@ window.__ModuleLoader__.load({
 .dwo-srow-broken .dwo-srow-title{text-decoration:line-through}
 .dwo-srow[data-dwo-drop="before"]{box-shadow:inset 0 2px 0 #60a5fa}
 .dwo-srow[data-dwo-drop="after"]{box-shadow:inset 0 -2px 0 #60a5fa}
+.dwo-ws[data-dwo-drop="before"]{box-shadow:inset 0 2px 0 #60a5fa}
+.dwo-ws[data-dwo-drop="after"]{box-shadow:inset 0 -2px 0 #60a5fa}
 .dwo-srow-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
 .dwo-srow-dot-idle{background:transparent}
 .dwo-srow-leading{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:inherit;opacity:.75}

@@ -1,33 +1,68 @@
-# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
-# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages
-
-name: Node.js Package
+name: Publish to npm
 
 on:
   release:
-    types: [created]
+    types: [published]        # draft 发布时事件是 published，不是 created
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要发布到 npm 的 tag（如 0.2.0）
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write               # Trusted Publishing 必需，OIDC 令牌来源
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  publish:
+    runs-on: ubuntu-latest      # 仅支持 GitHub 托管的 runner，self-hosted 不行
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm ci
-      - run: npm test
+          ref: ${{ inputs.tag || github.ref }}
 
-  publish-npm:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org/
-      - run: npm ci
-      - run: npm publish
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing 要求 npm >= 11.5.1（Node 24 通常已满足，这里兜底）
+      - name: 确认 npm 版本
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: 校验源码与打包内容
+        run: |
+          set -euo pipefail
+          node --check index.js
+          node --check client.js
+          for f in lib/*.js; do node --check "$f"; done
+          node scripts/check-client.mjs
+          npm pack --dry-run
+
+      - name: 校验 tag 与 package.json 版本一致
         env:
-          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
+          REF_NAME: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          V=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          T="${REF_NAME#v}"
+          if [ "$V" != "$T" ]; then
+            echo "::error::tag $REF_NAME 与 package.json 版本 $V 不一致"; exit 1
+          fi
+
+      - name: 发布（OIDC，无任何 secret）
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).name")
+          V=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          if npm view "$NAME@$V" version >/dev/null 2>&1; then
+            echo "::notice::$NAME@$V 已存在于 npm，跳过"; exit 0
+          fi
+          npm publish --access public

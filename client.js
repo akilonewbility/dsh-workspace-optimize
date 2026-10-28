@@ -324,8 +324,9 @@ window.__ModuleLoader__.load({
     const listeners = new Set()
     /** 本地归档意图：Host 队列尚未处理完时，刷新结果不得覆盖它（防回弹）。 */
     const archivedOverrides = new Map()
-    /** 完成后的绿灯只闪 2 秒：sessionId -> 过期时间戳。 */
+    /** 完成后的绿灯：当前会话 5 秒自动解除；非当前会话常亮直到点开。 */
     const completionFlash = new Map()
+    const completionSticky = new Set()
     let version = 0
     const cache = { version: -1, value: null }
 
@@ -919,6 +920,7 @@ window.__ModuleLoader__.load({
       // 打开会话即视为已查看，清掉「完成未查看」绿点
       store.seenAt.set(sessionId, Date.now())
       completionFlash.delete(sessionId)
+      completionSticky.delete(sessionId)
       bump()
       const ui = pluginCtx?.get?.('uiWorkspace')
       if (ui && typeof ui.openSession === 'function') {
@@ -1378,11 +1380,18 @@ window.__ModuleLoader__.load({
       if (!event || typeof event !== 'object') return
       scheduleSidebarRefresh()
       if (event.kind === 'complete' && typeof event.sessionId === 'string') {
-        completionFlash.set(event.sessionId, Date.now() + 5000)
-        setTimeout(() => {
-          completionFlash.delete(event.sessionId)
+        if (store.selectedSessionId === event.sessionId) {
+          // 用户就在这个会话：绿灯 5 秒后自动解除
+          completionFlash.set(event.sessionId, Date.now() + 5000)
+          setTimeout(() => {
+            completionFlash.delete(event.sessionId)
+            bump()
+          }, 5100)
+        } else {
+          // 用户不在这个会话：绿灯一直保留，直到点开该会话
+          completionSticky.add(event.sessionId)
           bump()
-        }, 5100)
+        }
       }
       if (store.settings.enabled === false) return
       const notify = store.settings.notify ?? {}
@@ -2166,7 +2175,7 @@ window.__ModuleLoader__.load({
       const pending = typeof session.pending === 'string' ? session.pending : ''
       // 绿灯由本地 complete 事件计时，不依赖 /sidebar 的 completedAt 回填，
       // 避免刷新耗时吃掉 2 秒窗口。
-      const flashing = (completionFlash.get(session.id) ?? 0) > Date.now()
+      const flashing = (completionFlash.get(session.id) ?? 0) > Date.now() || completionSticky.has(session.id)
       const dotState =
         pending === 'plan'
           ? 'plan'

@@ -24,6 +24,25 @@ window.__ModuleLoader__.load({
       gray: '#9ca3af',
     }
 
+    /** 按背景亮度选白字或深色字（WCAG 相对亮度）。 */
+    function readableTextColor(hex) {
+      const raw = typeof hex === 'string' ? hex.replace('#', '') : ''
+      if (raw.length !== 6) return '#ffffff'
+      const channel = (offset) => {
+        const value = parseInt(raw.slice(offset, offset + 2), 16) / 255
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
+      }
+      const luminance = 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+      return luminance > 0.55 ? '#111111' : '#ffffff'
+    }
+
+    /** 颜色值可能是预设名或自定义 #rrggbb，统一解析成十六进制。 */
+    function colorHexOf(color) {
+      if (typeof color !== 'string' || color.length === 0) return ''
+      if (color.startsWith('#')) return color
+      return COLOR_HEX[color] ?? ''
+    }
+
     const DICT = {
       zh: {
         'fav.add': '收藏会话',
@@ -32,6 +51,7 @@ window.__ModuleLoader__.load({
         'color.menu': '设置颜色…',
         'color.title': '设置颜色',
         'color.clear': '清除颜色',
+        'color.custom': '自定义颜色',
         'order.menu': '排序与置顶…',
         'order.title': '排序与置顶',
         'order.pin': '置顶',
@@ -122,6 +142,7 @@ window.__ModuleLoader__.load({
         'sidebar.broken': '日志不可用',
         'sidebar.running': '运行中',
         'sidebar.pendingApproval': '等待审批',
+        'sidebar.pendingPlan': '计划待审',
         'sidebar.pendingQuestion': '等待回答',
         'sidebar.done': '已完成',
         'favorites.title': '收藏',
@@ -153,12 +174,15 @@ window.__ModuleLoader__.load({
         'session.copyId': '复制会话 ID',
         'session.deleteUnsupported': '官方不支持删除会话，请使用归档。',
         'session.menu': '更多操作',
+        'session.archive': '归档会话',
+        'session.unarchive': '恢复会话',
         'session.color': '设置颜色…',
         'session.move': '移动到工作区…',
         'settings.sidebarMode': '侧栏样式',
         'settings.sidebarMode.optimized': '增强侧栏',
         'settings.sidebarMode.native': '官方侧栏',
         'settings.showBlankSessions': '显示空白会话（便于清理）',
+        'settings.workspaceHighlight': '色块高亮工作区（含子项竖线）',
       },
       en: {
         'fav.add': 'Favorite session',
@@ -167,6 +191,7 @@ window.__ModuleLoader__.load({
         'color.menu': 'Set color…',
         'color.title': 'Set color',
         'color.clear': 'Clear color',
+        'color.custom': 'Custom color',
         'order.menu': 'Order and pin…',
         'order.title': 'Order and pin',
         'order.pin': 'Pin to top',
@@ -257,6 +282,7 @@ window.__ModuleLoader__.load({
         'sidebar.broken': 'log unavailable',
         'sidebar.running': 'Running',
         'sidebar.pendingApproval': 'Waiting for approval',
+        'sidebar.pendingPlan': 'Plan awaiting review',
         'sidebar.pendingQuestion': 'Waiting for answer',
         'sidebar.done': 'Done',
         'favorites.title': 'Favorites',
@@ -288,12 +314,15 @@ window.__ModuleLoader__.load({
         'session.copyId': 'Copy session ID',
         'session.deleteUnsupported': 'Session deletion is not supported; use archive instead.',
         'session.menu': 'More actions',
+        'session.archive': 'Archive session',
+        'session.unarchive': 'Restore session',
         'session.color': 'Set color…',
         'session.move': 'Move to workspace…',
         'settings.sidebarMode': 'Sidebar style',
         'settings.sidebarMode.optimized': 'Enhanced sidebar',
         'settings.sidebarMode.native': 'Official sidebar',
         'settings.showBlankSessions': 'Show blank session drafts',
+        'settings.workspaceHighlight': 'Highlight workspaces with color blocks',
       },
     }
 
@@ -316,8 +345,11 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------------ 状态仓库
 
     const listeners = new Set()
-    /** 完成后的绿灯只闪 2 秒：sessionId -> 过期时间戳。 */
+    /** 本地归档意图：Host 队列尚未处理完时，刷新结果不得覆盖它（防回弹）。 */
+    const archivedOverrides = new Map()
+    /** 完成后的绿灯：当前会话 5 秒自动解除；非当前会话常亮直到点开。 */
     const completionFlash = new Map()
+    const completionSticky = new Set()
     let version = 0
     const cache = { version: -1, value: null }
 
@@ -568,15 +600,64 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------------ 自绘侧栏数据
 
     let refreshingSidebar = null
+    let sidebarSeq = 0
+    let pendingSidebarRefresh = false
+    // 未完成的写操作计数：刷新必须等它们全部结束，否则会读到中间状态并覆盖乐观更新。
+    let pendingWrites = 0
+    let writeWaiters = []
+
+    function beginWrite() {
+      pendingWrites += 1
+    }
+
+    function endWrite() {
+      pendingWrites = Math.max(0, pendingWrites - 1)
+      if (pendingWrites === 0 && writeWaiters.length > 0) {
+        const waiters = writeWaiters.splice(0)
+        for (const resolve of waiters) resolve()
+      }
+    }
+
+    function waitWritesDone(timeoutMs = 3000) {
+      if (pendingWrites === 0) return Promise.resolve()
+      return new Promise((resolve) => {
+        const finish = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        const timer = setTimeout(() => {
+          const index = writeWaiters.indexOf(finish)
+          if (index >= 0) writeWaiters.splice(index, 1)
+          resolve()
+        }, timeoutMs)
+        writeWaiters.push(finish)
+      })
+    }
 
     async function refreshSidebar() {
-      if (refreshingSidebar) return refreshingSidebar
+      // 等所有写操作落地、并确保 Host 已收到失效通知，再拉数据；
+      // 否则可能读到写操作前的中间快照并覆盖乐观更新（回弹）。
+      const startedAt = Date.now()
+      const waitStart = Date.now()
+      await waitWritesDone()
+      const waitWrites = Date.now() - waitStart
+      const invalidateStart = Date.now()
+      await waitInvalidate()
+      const waitInvalidateMs = Date.now() - invalidateStart
+      if (refreshingSidebar) {
+        // 单飞期间的新请求：结束后再补一次，保证拿到最新数据
+        pendingSidebarRefresh = true
+        return refreshingSidebar
+      }
+      const seq = ++sidebarSeq
+      const requestStart = Date.now()
       store.sidebarLoading = true
       bump()
       refreshingSidebar = apiFetch('sidebar')
         .then((data) => {
+          if (seq !== sidebarSeq) return data
           if (data && data.ok !== false) {
-            store.sidebar = data
+            store.sidebar = mergeArchivedOverrides(mergeOrderOverrides(data))
             store.sidebarError = ''
           } else {
             store.sidebarError = (data && data.error) || '侧栏数据无效'
@@ -584,12 +665,16 @@ window.__ModuleLoader__.load({
           return data
         })
         .catch((error) => {
-          store.sidebarError = error instanceof Error ? error.message : String(error)
+          if (seq === sidebarSeq) store.sidebarError = error instanceof Error ? error.message : String(error)
         })
         .finally(() => {
           store.sidebarLoading = false
           refreshingSidebar = null
           bump()
+          if (pendingSidebarRefresh) {
+            pendingSidebarRefresh = false
+            void refreshSidebar()
+          }
         })
       return refreshingSidebar
     }
@@ -665,21 +750,130 @@ window.__ModuleLoader__.load({
     let sidebarRefreshTimer = null
     let sidebarLastRefresh = 0
 
-    function scheduleSidebarRefresh() {
-      // 首个事件立即刷新（让黄灯尽快出现），后续事件在窗口内合并
+    /**
+     * 状态事件用「首个立即刷新」尽快反映黄灯/绿灯；
+     * 写操作传 { debounce: true }，等用户停止操作 300ms 后合并成一次刷新。
+     */
+    function scheduleSidebarRefresh(options = {}) {
+      const debounceOnly = options && options.debounce === true
       const now = Date.now()
       const elapsed = now - sidebarLastRefresh
-      if (elapsed >= 300) {
+      if (!debounceOnly && elapsed >= 300) {
         sidebarLastRefresh = now
         if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
         return
       }
       if (sidebarRefreshTimer) return
+      const delay = debounceOnly ? 300 : Math.max(0, 300 - elapsed)
       sidebarRefreshTimer = setTimeout(() => {
         sidebarRefreshTimer = null
         sidebarLastRefresh = Date.now()
         if (store.settings.sidebarMode === 'optimized') refreshSidebar().catch(() => {})
-      }, 300 - elapsed)
+      }, delay)
+    }
+
+    let pendingInvalidate = null
+
+    /** 通知 Host 失效侧栏快照（官方 Remote 写操作后调用，失败静默）。返回可等待的 Promise。 */
+    function invalidateSidebar(sessionId) {
+      pendingInvalidate = apiFetch('invalidate', {
+        method: 'POST',
+        body: JSON.stringify(sessionId ? { sessionId } : {}),
+      }).catch(() => {})
+      return pendingInvalidate
+    }
+
+    /** 刷新前等待最近一次失效请求处理完毕，保证 Host 端缓存已标记 dirty。 */
+    async function waitInvalidate() {
+      if (!pendingInvalidate) return
+      const pending = pendingInvalidate
+      pendingInvalidate = null
+      await pending
+    }
+
+    /** 本地修改侧栏数据并立即重绘（乐观更新；后台刷新会校正）。 */
+    function updateSidebar(mutator) {
+      const sidebar = store.sidebar
+      if (!sidebar) return
+      store.sidebar = mutator(sidebar)
+      bump()
+    }
+
+    /** 本地排序意图：Host 写入队列未处理完时，刷新结果不得覆盖它（防回弹）。 */
+    const orderOverrides = new Map()
+
+    /** 在本地按「插到某会话之前（undefined 表示末尾）」重排会话顺序，并记录目标顺序。 */
+    function applyOrderLocally(workspaceId, sessionId, beforeSessionId) {
+      updateSidebar((sidebar) => ({
+        ...sidebar,
+        workspaces: (sidebar.workspaces ?? []).map((workspace) => {
+          if (workspace.id !== workspaceId) return workspace
+          const ids = workspace.sessionIds.filter((id) => id !== sessionId)
+          const index = beforeSessionId ? ids.indexOf(beforeSessionId) : -1
+          if (index >= 0) ids.splice(index, 0, sessionId)
+          else ids.push(sessionId)
+          orderOverrides.set(workspaceId, ids)
+          return { ...workspace, sessionIds: ids }
+        }),
+      }))
+    }
+
+    /** 本地移动工作区顺序（插到 beforeWorkspaceId 之前，省略则追加）。 */
+    function applyWorkspaceOrderLocally(workspaceId, beforeWorkspaceId) {
+      updateSidebar((sidebar) => {
+        const rows = [...(sidebar.workspaces ?? [])]
+        const from = rows.findIndex((row) => row.id === workspaceId)
+        if (from < 0) return sidebar
+        const [moved] = rows.splice(from, 1)
+        if (!moved) return sidebar
+        const to = beforeWorkspaceId ? rows.findIndex((row) => row.id === beforeWorkspaceId) : -1
+        if (to >= 0) rows.splice(to, 0, moved)
+        else rows.push(moved)
+        return { ...sidebar, workspaces: rows }
+      })
+    }
+
+    /** 拖动排序工作区：本地先行，再持久化到宿主 registry 顺序。 */
+    async function moveWorkspaceOrder(workspaceId, beforeWorkspaceId) {
+      applyWorkspaceOrderLocally(workspaceId, beforeWorkspaceId)
+      beginWrite()
+      try {
+        await apiFetch('workspace-order', {
+          method: 'POST',
+          body: JSON.stringify({ workspaceId, beforeWorkspaceId }),
+        })
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
+      } catch (error) {
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
+      }
+    }
+
+    /**
+     * 排序也应用本地意图覆盖：与目标顺序不一致时保留本地顺序，
+     * 直到 Host 顺序与目标一致（或长度变化，说明有新会话，交还 Host）。
+     */
+    function mergeOrderOverrides(data) {
+      if (!data || orderOverrides.size === 0) return data
+      const workspaces = (Array.isArray(data.workspaces) ? data.workspaces : []).map((workspace) => {
+        const target = orderOverrides.get(workspace.id)
+        if (!target) return workspace
+        if (!Array.isArray(workspace.sessionIds) || workspace.sessionIds.length !== target.length) {
+          orderOverrides.delete(workspace.id)
+          return workspace
+        }
+        const same = target.every((id, index) => workspace.sessionIds[index] === id)
+        if (same) {
+          orderOverrides.delete(workspace.id)
+          return workspace
+        }
+        return { ...workspace, sessionIds: target }
+      })
+      return { ...data, workspaces }
     }
 
     let sidebarModeSync = null
@@ -790,6 +984,7 @@ window.__ModuleLoader__.load({
       // 打开会话即视为已查看，清掉「完成未查看」绿点
       store.seenAt.set(sessionId, Date.now())
       completionFlash.delete(sessionId)
+      completionSticky.delete(sessionId)
       bump()
       const ui = pluginCtx?.get?.('uiWorkspace')
       if (ui && typeof ui.openSession === 'function') {
@@ -803,21 +998,32 @@ window.__ModuleLoader__.load({
       pushToast(t('sidebar.openFailed'))
     }
 
-    function startSession(workspaceId) {
+    async function startSession(workspaceId) {
       const ui = pluginCtx?.get?.('uiWorkspace')
-      if (ui && typeof ui.startSession === 'function') {
-        try {
-          ui.startSession(workspaceId)
-          return
-        } catch {
-          // 回退
-        }
+      if (!ui) {
+        pushToast(t('sidebar.openFailed'))
+        return
       }
-      pushToast(t('sidebar.openFailed'))
+      try {
+        let sessionId = ''
+        if (workspaceId && typeof ui.connectWorkspace === 'function') {
+          sessionId = await ui.connectWorkspace(workspaceId)
+        }
+        if (sessionId && typeof ui.openSession === 'function') {
+          ui.openSession(sessionId)
+          selectSession(sessionId)
+        } else if (typeof ui.startSession === 'function') {
+          ui.startSession(workspaceId)
+        }
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
     }
 
     /** 归档/恢复后先本地更新，让列表立刻按当前过滤隐藏或出现，再后台刷新校正。 */
     function applyArchivedLocally(sessionId, archived) {
+      archivedOverrides.set(sessionId, archived)
       const sidebar = store.sidebar
       if (!sidebar || !Array.isArray(sidebar.sessions)) return
       const sessions = sidebar.sessions.map((session) =>
@@ -830,28 +1036,67 @@ window.__ModuleLoader__.load({
       bump()
     }
 
+    /**
+     * 把 Host 返回的快照与本地归档意图合并：
+     * 不一致时保留本地目标（避免回弹），直到 Host 状态与目标一致才解除。
+     */
+    function mergeArchivedOverrides(data) {
+      if (!data || archivedOverrides.size === 0) return data
+      const sessions = (Array.isArray(data.sessions) ? data.sessions : []).map((session) => {
+        const target = archivedOverrides.get(session.id)
+        if (target === undefined) return session
+        if (session.archived === target) {
+          archivedOverrides.delete(session.id)
+          return session
+        }
+        return { ...session, archived: target }
+      })
+      if (archivedOverrides.size === 0) return { ...data, sessions }
+      const ids = new Set(Array.isArray(data.archivedSessionIds) ? data.archivedSessionIds : [])
+      for (const [id, target] of archivedOverrides) {
+        if (target) ids.add(id)
+        else ids.delete(id)
+      }
+      return { ...data, sessions, archivedSessionIds: [...ids] }
+    }
+
     async function archiveSession(sessionId) {
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.archiveSession !== 'function') return
+      // 先本地更新：连续快速归档时不排队等 Remote 往返。
+      applyArchivedLocally(sessionId, true)
+      beginWrite()
       try {
         await workspaces.archiveSession(sessionId, { stopActivity: false })
-        applyArchivedLocally(sessionId, true)
+        invalidateSidebar(sessionId)
         pushToast(t('sidebar.archived'))
-        void refreshSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        applyArchivedLocally(sessionId, false)
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
     async function unarchiveSession(sessionId) {
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.unarchiveSession !== 'function') return
+      applyArchivedLocally(sessionId, false)
+      beginWrite()
       try {
         await workspaces.unarchiveSession(sessionId)
-        applyArchivedLocally(sessionId, false)
-        void refreshSidebar()
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        applyArchivedLocally(sessionId, true)
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -874,8 +1119,25 @@ window.__ModuleLoader__.load({
       try {
         const path = await ui.pickDirectory()
         if (!path) return
-        await workspaces.create({ path })
-        await refreshSidebar()
+        beginWrite()
+        let view
+        try {
+          view = await workspaces.create({ path })
+        } finally {
+          endWrite()
+        }
+        const workspaceId = view?.id ?? view?.workspace?.id
+        if (typeof workspaceId === 'string' && workspaceId.length > 0) {
+          updateSidebar((sidebar) => ({
+            ...sidebar,
+            workspaces: [
+              ...(sidebar.workspaces ?? []),
+              { id: workspaceId, title: baseName(path), path, sessionIds: [] },
+            ],
+          }))
+        }
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -884,20 +1146,42 @@ window.__ModuleLoader__.load({
     async function renameWorkspace(workspaceId, title) {
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.rename !== 'function') return
+      updateSidebar((sidebar) => ({
+        ...sidebar,
+        workspaces: (sidebar.workspaces ?? []).map((workspace) =>
+          workspace.id === workspaceId ? { ...workspace, title } : workspace,
+        ),
+      }))
+      beginWrite()
       try {
         await workspaces.rename(workspaceId, title)
-        await refreshSidebar()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
     async function renameSession(sessionId, title) {
+      updateSidebar((sidebar) => ({
+        ...sidebar,
+        sessions: (sidebar.sessions ?? []).map((session) => (session.id === sessionId ? { ...session, title } : session)),
+      }))
+      beginWrite()
       try {
         await apiFetch('rename', { method: 'POST', body: JSON.stringify({ sessionId, title }) })
-        await refreshSidebar()
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        invalidateSidebar(sessionId)
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -910,11 +1194,15 @@ window.__ModuleLoader__.load({
 
     async function togglePinned(sessionId) {
       const pinned = isPinned(sessionId)
+      beginWrite()
       try {
         await apiFetch('pin', { method: 'POST', body: JSON.stringify({ sessionId, pinned: !pinned }) })
-        await refreshSidebar()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -953,24 +1241,45 @@ window.__ModuleLoader__.load({
       }
     }
 
-    async function setColor(sessionId, color) {
+    async function setColor(sessionId, color, options = {}) {
       try {
         await apiFetch('color', { method: 'POST', body: JSON.stringify({ sessionId, color }) })
         await refreshState()
-        closeDialog()
+        if (options.close !== false) closeDialog()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
+    }
+
+    let colorTimer = null
+
+    /** 自定义取色器拖动时节流保存，窗口保持打开。 */
+    function queueColor(sessionId, color) {
+      if (colorTimer) clearTimeout(colorTimer)
+      colorTimer = setTimeout(() => {
+        colorTimer = null
+        void setColor(sessionId, color, { close: false })
+      }, 150)
     }
 
     async function setPriority(sessionId, priority) {
       try {
         await apiFetch('priority', { method: 'POST', body: JSON.stringify({ sessionId, priority }) })
         await refreshState()
-        closeDialog()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
+    }
+
+    let priorityTimer = null
+
+    /** 滑块拖动时节流保存，窗口保持打开。 */
+    function queuePriority(sessionId, priority) {
+      if (priorityTimer) clearTimeout(priorityTimer)
+      priorityTimer = setTimeout(() => {
+        priorityTimer = null
+        void setPriority(sessionId, priority)
+      }, 150)
     }
 
     async function applyOrder(sessionId, action) {
@@ -990,9 +1299,23 @@ window.__ModuleLoader__.load({
           pushToast(t('toast.noOrderApi'))
           return
         }
-        await workspaces.insertSessionBefore(target.workspaceId, target.sessionId, target.beforeSessionId)
-        pushToast(t('toast.orderDone'))
+        // 先本地重排，界面立即反映；Remote 写入放后台。
+        applyOrderLocally(target.workspaceId, target.sessionId, target.beforeSessionId)
         closeDialog()
+        beginWrite()
+        try {
+          await workspaces.insertSessionBefore(target.workspaceId, target.sessionId, target.beforeSessionId)
+          invalidateSidebar()
+          pushToast(t('toast.orderDone'))
+          scheduleSidebarRefresh({ debounce: true })
+        } catch (error) {
+          orderOverrides.delete(target.workspaceId)
+          invalidateSidebar()
+          scheduleSidebarRefresh({ debounce: true })
+          pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+        } finally {
+          endWrite()
+        }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -1009,6 +1332,7 @@ window.__ModuleLoader__.load({
     }
 
     async function moveSession(sessionId, targetWorkspaceId) {
+      beginWrite()
       try {
         await apiFetch('move', {
           method: 'POST',
@@ -1016,8 +1340,12 @@ window.__ModuleLoader__.load({
         })
         pushToast(t('toast.moveDone'))
         closeDialog()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -1101,8 +1429,9 @@ window.__ModuleLoader__.load({
       const fallbackName = typeof event.sessionId === 'string' ? event.sessionId.slice(0, 8) : ''
       const isComplete = event.kind === 'complete'
       const isWaiting = event.kind === 'waiting'
-      // 完成：会话标题 + 最终答复；等待交互：会话标题 + 所需权限/问题标题。
-      const title = t(`notify.${event.kind}`)
+      const isPlan = isWaiting && event.detail === 'plan'
+      // 完成：会话标题 + 最终答复；计划待审：单独标题；等待交互：会话标题 + 所需权限/问题标题。
+      const title = isPlan ? t('sidebar.pendingPlan') : t(`notify.${event.kind}`)
       const partsForBody = isComplete
         ? [event.title, event.summary]
         : isWaiting
@@ -1146,11 +1475,18 @@ window.__ModuleLoader__.load({
       if (!event || typeof event !== 'object') return
       scheduleSidebarRefresh()
       if (event.kind === 'complete' && typeof event.sessionId === 'string') {
-        completionFlash.set(event.sessionId, Date.now() + 5000)
-        setTimeout(() => {
-          completionFlash.delete(event.sessionId)
+        if (store.selectedSessionId === event.sessionId) {
+          // 用户就在这个会话：绿灯 5 秒后自动解除
+          completionFlash.set(event.sessionId, Date.now() + 5000)
+          setTimeout(() => {
+            completionFlash.delete(event.sessionId)
+            bump()
+          }, 5100)
+        } else {
+          // 用户不在这个会话：绿灯一直保留，直到点开该会话
+          completionSticky.add(event.sessionId)
           bump()
-        }, 5100)
+        }
       }
       if (store.settings.enabled === false) return
       const notify = store.settings.notify ?? {}
@@ -1243,6 +1579,66 @@ window.__ModuleLoader__.load({
           strokeLinejoin: 'round',
         },
         h('path', { d: 'M12 3.6l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.6-5 2.6.9-5.6-4-3.9 5.6-.8z' }),
+      )
+    }
+
+    function ArchiveIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          'aria-hidden': true,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.15,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        },
+        h('path', { d: 'M2.4 3.4h11.2v3.1H2.4z' }),
+        h('path', { d: 'M3.5 6.5h9v6.6h-9z' }),
+        h('path', { d: 'M8 8.3v3.2M6.5 10.2L8 11.7l1.5-1.5' }),
+      )
+    }
+
+    function RestoreIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          'aria-hidden': true,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.15,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        },
+        h('path', { d: 'M2.4 3.4h11.2v3.1H2.4z' }),
+        h('path', { d: 'M3.5 6.5h9v6.6h-9z' }),
+        h('path', { d: 'M8 11.6V8.4M6.5 9.8L8 8.3l1.5 1.5' }),
+      )
+    }
+
+    function PlusIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          'aria-hidden': true,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.35,
+          strokeLinecap: 'round',
+        },
+        h('path', { d: 'M8 3.2v9.6M3.2 8h9.6' }),
       )
     }
 
@@ -1448,7 +1844,7 @@ window.__ModuleLoader__.load({
         'span',
         {
           className: 'dwo-mark',
-          style: { background: color ? COLOR_HEX[color] : 'transparent' },
+          style: { background: color ? colorHexOf(color) : 'transparent' },
           title: color ? t(`color.name.${color}`) : t('fav.label'),
         },
         favorite ? h(StarIcon, { filled: true, size: 9 }) : null,
@@ -1474,6 +1870,9 @@ window.__ModuleLoader__.load({
       const current = props.current
       const snap = useSnapshot()
       const priority = snap.priorities[sessionId]
+      // 工作区也复用这个面板，但没有优先级语义。
+      const isWorkspace = !(snap.sidebar?.sessions ?? []).some((session) => session.id === sessionId)
+      const customValue = colorHexOf(current) || '#60a5fa'
       return h(
         DialogShell,
         { title: t('color.title') },
@@ -1485,7 +1884,7 @@ window.__ModuleLoader__.load({
               key: color,
               type: 'button',
               className: `dwo-swatch${current === color ? ' dwo-swatch-active' : ''}`,
-              style: { background: COLOR_HEX[color] },
+              style: { background: colorHexOf(color) },
               title: t(`color.name.${color}`),
               'aria-label': t(`color.name.${color}`),
               onClick: () => void setColor(sessionId, color),
@@ -1494,25 +1893,36 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
+          { className: 'dwo-custom-color' },
+          h('span', { className: 'dwo-label' }, t('color.custom')),
+          h('input', {
+            type: 'color',
+            className: 'dwo-color-input',
+            value: customValue,
+            onChange: (event) => queueColor(sessionId, event.target.value),
+          }),
+          h('span', { className: 'dwo-hint' }, colorHexOf(current) || '—'),
+        ),
+        h(
+          'div',
           { className: 'dwo-dialog-actions' },
           h('button', { type: 'button', className: 'dwo-button', onClick: () => void setColor(sessionId, null) }, t('color.clear')),
-          h(
-            'div',
-            { className: 'dwo-priority-row' },
-            h('span', { className: 'dwo-label' }, t('priority.value', { value: typeof priority === 'number' ? priority : '—' })),
-            h(
-              'input',
-              {
-                type: 'range',
-                min: 0,
-                max: 100,
-                step: 1,
-                value: typeof priority === 'number' ? priority : 50,
-                className: 'dwo-range',
-                onChange: (event) => void setPriority(sessionId, Number(event.target.value)),
-              },
-            ),
-          ),
+          isWorkspace
+            ? null
+            : h(
+                'div',
+                { className: 'dwo-priority-row' },
+                h('span', { className: 'dwo-label' }, t('priority.value', { value: typeof priority === 'number' ? priority : '—' })),
+                h('input', {
+                  type: 'range',
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  value: typeof priority === 'number' ? priority : 50,
+                  className: 'dwo-range',
+                  onChange: (event) => queuePriority(sessionId, Number(event.target.value)),
+                }),
+              ),
         ),
       )
     }
@@ -1636,6 +2046,7 @@ window.__ModuleLoader__.load({
         ['settings.notify.started', notify.started === true, (value) => updateSettings({ notify: { started: value } })],
         ['settings.notifyWhenVisible', settings.notifyWhenVisible === true, (value) => updateSettings({ notifyWhenVisible: value })],
         ['settings.showBlankSessions', settings.showBlankSessions === true, (value) => updateSettings({ showBlankSessions: value })],
+        ['settings.workspaceHighlight', settings.workspaceHighlight === true, (value) => updateSettings({ workspaceHighlight: value })],
         ['settings.dnd', dnd.enabled === true, (value) => updateSettings({ dnd: { enabled: value } })],
       ]
 
@@ -1791,6 +2202,7 @@ window.__ModuleLoader__.load({
     }
 
     let dragging = null
+    let draggingWorkspace = null
 
     async function moveRelative(sourceId, targetId, mode) {
       if (!sourceId || !targetId || sourceId === targetId) return
@@ -1803,12 +2215,20 @@ window.__ModuleLoader__.load({
       const before = mode === 'after' ? ids[index + 1] : ids[index]
       const workspaces = pluginCtx?.get?.('workspaces')
       if (!workspaces || typeof workspaces.insertSessionBefore !== 'function') return
+      applyOrderLocally(workspace.id, sourceId, before)
+      setOrderMode('manual')
+      beginWrite()
       try {
         await workspaces.insertSessionBefore(workspace.id, sourceId, before)
-        setOrderMode('manual')
-        await refreshSidebar()
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
       } catch (error) {
+        orderOverrides.delete(workspace.id)
+        invalidateSidebar()
+        scheduleSidebarRefresh({ debounce: true })
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        endWrite()
       }
     }
 
@@ -1866,8 +2286,17 @@ window.__ModuleLoader__.load({
       const pending = typeof session.pending === 'string' ? session.pending : ''
       // 绿灯由本地 complete 事件计时，不依赖 /sidebar 的 completedAt 回填，
       // 避免刷新耗时吃掉 2 秒窗口。
-      const flashing = (completionFlash.get(session.id) ?? 0) > Date.now()
-      const dotState = pending ? 'pending' : session.running ? 'running' : flashing ? 'done' : 'idle'
+      const flashing = (completionFlash.get(session.id) ?? 0) > Date.now() || completionSticky.has(session.id)
+      const dotState =
+        pending === 'plan'
+          ? 'plan'
+          : pending
+            ? 'pending'
+            : session.running
+              ? 'running'
+              : flashing
+                ? 'done'
+                : 'idle'
       return h(
         'div',
         {
@@ -1926,28 +2355,38 @@ window.__ModuleLoader__.load({
           className: `dwo-srow-dot${
             dotState === 'pending'
               ? ' dwo-srow-dot-pending'
-              : dotState === 'running'
-                ? ' dwo-srow-dot-running'
-                : dotState === 'done'
-                  ? ' dwo-srow-dot-done'
-                  : ' dwo-srow-dot-idle'
+              : dotState === 'plan'
+                ? ' dwo-srow-dot-plan'
+                : dotState === 'running'
+                  ? ' dwo-srow-dot-running'
+                  : dotState === 'done'
+                    ? ' dwo-srow-dot-done'
+                    : ' dwo-srow-dot-idle'
           }`,
         }),
-        h('span', { className: 'dwo-srow-title', style: color ? { color: COLOR_HEX[color] } : undefined }, label),
+        h('span', { className: 'dwo-srow-title', style: color ? { color: colorHexOf(color) } : undefined }, label),
         h(
           'span',
           {
             className: `dwo-srow-time${
-              dotState === 'pending' ? ' dwo-srow-time-pending' : dotState === 'done' ? ' dwo-srow-time-done' : ''
+              dotState === 'pending'
+                ? ' dwo-srow-time-pending'
+                : dotState === 'plan'
+                  ? ' dwo-srow-time-plan'
+                  : dotState === 'done'
+                    ? ' dwo-srow-time-done'
+                    : ''
             }`,
           },
           dotState === 'pending'
             ? pending === 'approval'
               ? t('sidebar.pendingApproval')
               : t('sidebar.pendingQuestion')
-            : dotState === 'done'
-              ? t('sidebar.done')
-              : formatRelative(session.updatedAt),
+            : dotState === 'plan'
+              ? t('sidebar.pendingPlan')
+              : dotState === 'done'
+                ? t('sidebar.done')
+                : formatRelative(session.updatedAt),
         ),
         h(
           'span',
@@ -1965,6 +2404,21 @@ window.__ModuleLoader__.load({
               },
             },
             h(StarIcon, { filled: favorite, size: 13 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwo-icon-button',
+              title: archived ? t('session.unarchive') : t('session.archive'),
+              'aria-label': archived ? t('session.unarchive') : t('session.archive'),
+              onClick: (event) => {
+                event.stopPropagation()
+                if (archived) void unarchiveSession(session.id)
+                else void archiveSession(session.id)
+              },
+            },
+            archived ? h(RestoreIcon, { size: 13 }) : h(ArchiveIcon, { size: 13 }),
           ),
           h(
             'button',
@@ -2025,14 +2479,64 @@ window.__ModuleLoader__.load({
       // 括号计数 = 自己的会话 + 直接子工作区数量（不递归统计子文件夹里的会话）。
       const count = rows.length + childCount
       const title = workspace.title || workspace.path || workspace.id
+      const highlight = snap.settings.workspaceHighlight === true
+      const pill = highlight && Boolean(color)
+      const accent = color ? colorHexOf(color) : ''
+      const pillText = accent ? readableTextColor(accent) : ''
       return h(
         'div',
-        { className: 'dwo-group' },
+        {
+          className: pill && !folded ? 'dwo-group dwo-group-pill' : 'dwo-group',
+          style: pill ? { '--dwo-accent': accent, '--dwo-line-left': `${10 + depth * 12}px` } : undefined,
+        },
         h(
           'div',
           {
             className: 'dwo-ws',
             style: { paddingLeft: `${4 + depth * 12}px` },
+            draggable: true,
+            onDragStart: (event) => {
+              if (event.target && event.target.closest && event.target.closest('.dwo-ws-fold, .dwo-icon-button')) {
+                event.preventDefault()
+                return
+              }
+              draggingWorkspace = { id: workspace.id }
+              try {
+                event.dataTransfer?.setData('text/plain', workspace.id)
+              } catch {
+                // 某些环境不允许设置拖拽数据
+              }
+            },
+            onDragOver: (event) => {
+              if (!draggingWorkspace || draggingWorkspace.id === workspace.id) return
+              event.preventDefault()
+              const rect = event.currentTarget.getBoundingClientRect()
+              event.currentTarget.dataset.dwoDrop = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+            },
+            onDragLeave: (event) => {
+              delete event.currentTarget.dataset.dwoDrop
+            },
+            onDrop: (event) => {
+              event.preventDefault()
+              const source = draggingWorkspace
+              draggingWorkspace = null
+              delete event.currentTarget.dataset.dwoDrop
+              if (!source || source.id === workspace.id) return
+              const rect = event.currentTarget.getBoundingClientRect()
+              const after = event.clientY > rect.top + rect.height / 2
+              let beforeWorkspaceId
+              if (after) {
+                const rows = store.sidebar?.workspaces ?? []
+                const index = rows.findIndex((row) => row.id === workspace.id)
+                beforeWorkspaceId = index >= 0 ? rows[index + 1]?.id : undefined
+              } else {
+                beforeWorkspaceId = workspace.id
+              }
+              void moveWorkspaceOrder(source.id, beforeWorkspaceId)
+            },
+            onDragEnd: () => {
+              draggingWorkspace = null
+            },
             onDoubleClick: (event) => {
               if (event.target && event.target.closest && event.target.closest('.dwo-ws-fold, .dwo-icon-button')) return
               toggleFold(workspace.id)
@@ -2042,24 +2546,45 @@ window.__ModuleLoader__.load({
               openMenu('workspaceMenu', { workspaceId: workspace.id }, event)
             },
           },
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dwo-ws-fold',
-              title: folded ? t('sidebar.rail') : workspace.path || workspace.id,
-              onClick: () => toggleFold(workspace.id),
-            },
-            folded ? '▸' : '▾',
-          ),
-          color
-            ? h('span', {
-                className: 'dwo-ws-dot',
-                style: { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] },
-              })
-            : null,
-          h('span', { className: 'dwo-ws-title' }, title),
-          h('span', { className: 'dwo-ws-count' }, `(${count})`),
+          pill
+            ? h(
+                'div',
+                { className: 'dwo-ws-pillbar', style: { background: accent, color: pillText } },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dwo-ws-fold dwo-ws-fold-pill',
+                    title: folded ? t('sidebar.rail') : workspace.path || workspace.id,
+                    onClick: () => toggleFold(workspace.id),
+                  },
+                  folded ? '▸' : '▾',
+                ),
+                h('span', { className: 'dwo-ws-title' }, title),
+                h('span', { className: 'dwo-ws-count' }, `(${count})`),
+              )
+            : h(
+                React.Fragment,
+                null,
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dwo-ws-fold',
+                    title: folded ? t('sidebar.rail') : workspace.path || workspace.id,
+                    onClick: () => toggleFold(workspace.id),
+                  },
+                  folded ? '▸' : '▾',
+                ),
+                color
+                  ? h('span', {
+                      className: 'dwo-ws-dot',
+                      style: { background: colorHexOf(color), borderColor: colorHexOf(color) },
+                    })
+                  : null,
+                h('span', { className: 'dwo-ws-title' }, title),
+                h('span', { className: 'dwo-ws-count' }, `(${count})`),
+              ),
           h(
             'span',
             { className: 'dwo-ws-actions' },
@@ -2072,6 +2597,20 @@ window.__ModuleLoader__.load({
                 onClick: () => void toggleWorkspaceFavorite(workspace.id),
               },
               h(StarIcon, { filled: favorite, size: 12 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dwo-icon-button',
+                title: t('sidebar.newSession'),
+                'aria-label': t('sidebar.newSession'),
+                onClick: (event) => {
+                  event.stopPropagation()
+                  void startSession(workspace.id)
+                },
+              },
+              h(PlusIcon, { size: 12 }),
             ),
             h(
               'button',
@@ -2129,7 +2668,10 @@ window.__ModuleLoader__.load({
       const sessions = Array.isArray(sidebar?.sessions) ? sidebar.sessions : []
       const byId = new Map(sessions.map((session) => [session.id, session]))
       const query = (view.search || '').trim().toLowerCase()
+      const showBlank = snap.settings.showBlankSessions === true
       const keep = (session) => {
+        // 空白草稿默认隐藏，但当前选中的空白会话（例如刚点「新建对话」）必须显示。
+        if (session.blank && !showBlank && session.id !== snap.selectedSessionId) return false
         if (view.filter === 'hide' && session.archived) return false
         if (view.filter === 'only' && !session.archived) return false
         if (query && !String(session.title || '').toLowerCase().includes(query)) return false
@@ -2275,9 +2817,11 @@ window.__ModuleLoader__.load({
               const meta = [
                 session.pending === 'approval'
                   ? t('sidebar.pendingApproval')
-                  : session.pending === 'question'
-                    ? t('sidebar.pendingQuestion')
-                    : '',
+                  : session.pending === 'plan'
+                    ? t('sidebar.pendingPlan')
+                    : session.pending === 'question'
+                      ? t('sidebar.pendingQuestion')
+                      : '',
                 session.running ? t('sidebar.running') : '',
                 session.scheduleCount > 0 ? t('sidebar.schedules', { count: session.scheduleCount }) : '',
                 session.archived ? t('sidebar.archived') : '',
@@ -2614,6 +3158,8 @@ window.__ModuleLoader__.load({
 .dwo-icon-button{width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:18px;line-height:1;cursor:pointer;opacity:.7}
 .dwo-icon-button:hover{background:color-mix(in srgb,currentColor 12%,transparent);opacity:1}
 .dwo-swatches{display:grid;grid-template-columns:repeat(9,1fr);gap:8px}
+.dwo-custom-color{display:flex;align-items:center;gap:10px}
+.dwo-color-input{width:44px;height:26px;padding:0;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;background:transparent;cursor:pointer}
 .dwo-swatch{width:100%;aspect-ratio:1;border:2px solid transparent;border-radius:50%;cursor:pointer;padding:0}
 .dwo-swatch-active{border-color:currentColor;box-shadow:0 0 0 2px color-mix(in srgb,currentColor 24%,transparent)}
 .dwo-dialog-actions{display:flex;flex-direction:column;gap:12px}
@@ -2666,6 +3212,12 @@ window.__ModuleLoader__.load({
 .dwo-ws:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
 .dwo-ws-fold{width:16px;height:20px;padding:0;border:0;background:transparent;color:inherit;font-size:10px;cursor:pointer;opacity:.7;flex:0 0 auto}
 .dwo-ws-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
+.dwo-ws-pillbar{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;flex:0 1 auto;height:20px;box-sizing:border-box;padding:0 8px 0 0;border-radius:7px}
+.dwo-ws-pillbar .dwo-ws-title{color:inherit}
+.dwo-ws-pillbar .dwo-ws-count{color:inherit;opacity:.75}
+.dwo-ws-fold-pill{color:inherit;opacity:.9}
+.dwo-group-pill{position:relative}
+.dwo-group-pill::after{content:'';position:absolute;left:var(--dwo-line-left,10px);top:27px;bottom:1px;width:2px;border-radius:1px;background:var(--dwo-accent,#60a5fa);opacity:.85;pointer-events:none}
 .dwo-ws-title{flex:0 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-ws-count{flex:0 0 auto;font-size:10.5px;opacity:.5}
 .dwo-ws-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex:0 0 auto;opacity:0;transition:opacity .12s ease}
@@ -2686,6 +3238,8 @@ window.__ModuleLoader__.load({
 .dwo-srow-broken .dwo-srow-title{text-decoration:line-through}
 .dwo-srow[data-dwo-drop="before"]{box-shadow:inset 0 2px 0 #60a5fa}
 .dwo-srow[data-dwo-drop="after"]{box-shadow:inset 0 -2px 0 #60a5fa}
+.dwo-ws[data-dwo-drop="before"]{box-shadow:inset 0 2px 0 #60a5fa}
+.dwo-ws[data-dwo-drop="after"]{box-shadow:inset 0 -2px 0 #60a5fa}
 .dwo-srow-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
 .dwo-srow-dot-idle{background:transparent}
 .dwo-srow-leading{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:inherit;opacity:.75}
@@ -2693,12 +3247,14 @@ window.__ModuleLoader__.load({
 .dwo-schedule-mark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:0 0 auto;color:#60a5fa}
 .dwo-srow-dot-running{background:#60a5fa;animation:dwo-pulse 1.2s ease-in-out infinite}
 .dwo-srow-dot-pending{background:#fbbf24;animation:dwo-pulse 1.2s ease-in-out infinite}
-.dwo-srow-dot-done{background:#34d399}
+.dwo-srow-dot-plan{background:#fbbf24;animation:dwo-pulse 1.2s ease-in-out infinite}
+.dwo-srow-dot-done{background:#22c55e}
 @keyframes dwo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dwo-srow-title{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-srow-time{font-size:10.5px;opacity:.45;flex:0 0 auto;margin-left:auto;padding-left:6px}
 .dwo-srow-time-pending{color:#fbbf24;opacity:1}
-.dwo-srow-time-done{color:#34d399;opacity:1}
+.dwo-srow-time-plan{color:#fbbf24;opacity:1}
+.dwo-srow-time-done{color:#22c55e;opacity:1}
 .dwo-srow-running{width:6px;height:6px;border-radius:50%;background:#34d399;flex:0 0 auto}
 .dwo-group-empty{padding:8px 10px;font-size:11.5px;opacity:.5}
 .dwo-sidebar-foot{display:flex;padding:2px 6px 0;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);padding-top:6px}

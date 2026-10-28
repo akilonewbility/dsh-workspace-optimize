@@ -19,7 +19,9 @@
     "cordis.patch.yml",
     "icon.svg",
     "README.md",
-    "docs"
+    "docs",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "keywords": [
     "deepseek",

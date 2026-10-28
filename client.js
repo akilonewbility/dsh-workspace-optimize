@@ -2495,7 +2495,7 @@ window.__ModuleLoader__.load({
                 'div',
                 {
                   className: 'dwo-ws-tree',
-                  style: { borderLeft: `2px solid ${accent}`, marginLeft: `${10 + depth * 12}px` },
+                  style: { borderLeft: `2px solid ${accent}`, marginLeft: `${8 + depth * 12}px` },
                 },
                 h(
                   React.Fragment,
@@ -3097,8 +3097,8 @@ window.__ModuleLoader__.load({
 .dwo-ws-pillbar .dwo-ws-title{color:inherit}
 .dwo-ws-pillbar .dwo-ws-count{color:inherit;opacity:.75}
 .dwo-ws-fold-pill{color:inherit;opacity:.9}
-.dwo-ws-tree{margin-top:2px;padding-left:2px}
-.dwo-rows-inset{padding-left:8px}
+.dwo-ws-tree{margin-top:2px;padding-left:0}
+.dwo-rows-inset{padding-left:0}
 .dwo-ws-title{flex:0 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-ws-count{flex:0 0 auto;font-size:10.5px;opacity:.5}
 .dwo-ws-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex:0 0 auto;opacity:0;transition:opacity .12s ease}

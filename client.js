@@ -24,6 +24,18 @@ window.__ModuleLoader__.load({
       gray: '#9ca3af',
     }
 
+    /** 按背景亮度选白字或深色字（WCAG 相对亮度）。 */
+    function readableTextColor(hex) {
+      const raw = typeof hex === 'string' ? hex.replace('#', '') : ''
+      if (raw.length !== 6) return '#ffffff'
+      const channel = (offset) => {
+        const value = parseInt(raw.slice(offset, offset + 2), 16) / 255
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
+      }
+      const luminance = 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+      return luminance > 0.55 ? '#111111' : '#ffffff'
+    }
+
     const DICT = {
       zh: {
         'fav.add': '收藏会话',
@@ -162,6 +174,7 @@ window.__ModuleLoader__.load({
         'settings.sidebarMode.optimized': '增强侧栏',
         'settings.sidebarMode.native': '官方侧栏',
         'settings.showBlankSessions': '显示空白会话（便于清理）',
+        'settings.workspaceHighlight': '色块高亮工作区（含子项竖线）',
       },
       en: {
         'fav.add': 'Favorite session',
@@ -300,6 +313,7 @@ window.__ModuleLoader__.load({
         'settings.sidebarMode.optimized': 'Enhanced sidebar',
         'settings.sidebarMode.native': 'Official sidebar',
         'settings.showBlankSessions': 'Show blank session drafts',
+        'settings.workspaceHighlight': 'Highlight workspaces with color blocks',
       },
     }
 
@@ -1943,6 +1957,7 @@ window.__ModuleLoader__.load({
         ['settings.notify.started', notify.started === true, (value) => updateSettings({ notify: { started: value } })],
         ['settings.notifyWhenVisible', settings.notifyWhenVisible === true, (value) => updateSettings({ notifyWhenVisible: value })],
         ['settings.showBlankSessions', settings.showBlankSessions === true, (value) => updateSettings({ showBlankSessions: value })],
+        ['settings.workspaceHighlight', settings.workspaceHighlight === true, (value) => updateSettings({ workspaceHighlight: value })],
         ['settings.dnd', dnd.enabled === true, (value) => updateSettings({ dnd: { enabled: value } })],
       ]
 
@@ -2374,6 +2389,10 @@ window.__ModuleLoader__.load({
       // 括号计数 = 自己的会话 + 直接子工作区数量（不递归统计子文件夹里的会话）。
       const count = rows.length + childCount
       const title = workspace.title || workspace.path || workspace.id
+      const highlight = snap.settings.workspaceHighlight === true
+      const pill = highlight && Boolean(color)
+      const accent = color ? COLOR_HEX[color] : ''
+      const pillText = accent ? readableTextColor(accent) : ''
       return h(
         'div',
         { className: 'dwo-group' },
@@ -2391,24 +2410,45 @@ window.__ModuleLoader__.load({
               openMenu('workspaceMenu', { workspaceId: workspace.id }, event)
             },
           },
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dwo-ws-fold',
-              title: folded ? t('sidebar.rail') : workspace.path || workspace.id,
-              onClick: () => toggleFold(workspace.id),
-            },
-            folded ? '▸' : '▾',
-          ),
-          color
-            ? h('span', {
-                className: 'dwo-ws-dot',
-                style: { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] },
-              })
-            : null,
-          h('span', { className: 'dwo-ws-title' }, title),
-          h('span', { className: 'dwo-ws-count' }, `(${count})`),
+          pill
+            ? h(
+                'div',
+                { className: 'dwo-ws-pillbar', style: { background: accent, color: pillText } },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dwo-ws-fold dwo-ws-fold-pill',
+                    title: folded ? t('sidebar.rail') : workspace.path || workspace.id,
+                    onClick: () => toggleFold(workspace.id),
+                  },
+                  folded ? '▸' : '▾',
+                ),
+                h('span', { className: 'dwo-ws-title' }, title),
+                h('span', { className: 'dwo-ws-count' }, `(${count})`),
+              )
+            : h(
+                React.Fragment,
+                null,
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dwo-ws-fold',
+                    title: folded ? t('sidebar.rail') : workspace.path || workspace.id,
+                    onClick: () => toggleFold(workspace.id),
+                  },
+                  folded ? '▸' : '▾',
+                ),
+                color
+                  ? h('span', {
+                      className: 'dwo-ws-dot',
+                      style: { background: COLOR_HEX[color], borderColor: COLOR_HEX[color] },
+                    })
+                  : null,
+                h('span', { className: 'dwo-ws-title' }, title),
+                h('span', { className: 'dwo-ws-count' }, `(${count})`),
+              ),
           h(
             'span',
             { className: 'dwo-ws-actions' },
@@ -2450,20 +2490,42 @@ window.__ModuleLoader__.load({
         ),
         folded
           ? null
-          : h(
-              React.Fragment,
-              null,
-              props.subGroups ?? null,
-              rows.length === 0 && childCount === 0
-                ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
-                : rows.length === 0
-                  ? null
-                  : h(
-                      'div',
-                      { className: 'dwo-rows', style: { paddingLeft: `${10 + depth * 12}px` } },
-                      rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
-                    ),
-            ),
+          : pill
+            ? h(
+                'div',
+                {
+                  className: 'dwo-ws-tree',
+                  style: { borderLeft: `2px solid ${accent}`, marginLeft: `${10 + depth * 12}px` },
+                },
+                h(
+                  React.Fragment,
+                  null,
+                  props.subGroups ?? null,
+                  rows.length === 0 && childCount === 0
+                    ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
+                    : rows.length === 0
+                      ? null
+                      : h(
+                          'div',
+                          { className: 'dwo-rows dwo-rows-inset' },
+                          rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
+                        ),
+                ),
+              )
+            : h(
+                React.Fragment,
+                null,
+                props.subGroups ?? null,
+                rows.length === 0 && childCount === 0
+                  ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
+                  : rows.length === 0
+                    ? null
+                    : h(
+                        'div',
+                        { className: 'dwo-rows', style: { paddingLeft: `${10 + depth * 12}px` } },
+                        rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
+                      ),
+              ),
       )
     }
 
@@ -3031,6 +3093,12 @@ window.__ModuleLoader__.load({
 .dwo-ws:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
 .dwo-ws-fold{width:16px;height:20px;padding:0;border:0;background:transparent;color:inherit;font-size:10px;cursor:pointer;opacity:.7;flex:0 0 auto}
 .dwo-ws-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
+.dwo-ws-pillbar{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;flex:0 1 auto;padding:1px 9px 1px 2px;border-radius:8px}
+.dwo-ws-pillbar .dwo-ws-title{color:inherit}
+.dwo-ws-pillbar .dwo-ws-count{color:inherit;opacity:.75}
+.dwo-ws-fold-pill{color:inherit;opacity:.9}
+.dwo-ws-tree{margin-top:2px;padding-left:2px}
+.dwo-rows-inset{padding-left:8px}
 .dwo-ws-title{flex:0 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-ws-count{flex:0 0 auto;font-size:10.5px;opacity:.5}
 .dwo-ws-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex:0 0 auto;opacity:0;transition:opacity .12s ease}

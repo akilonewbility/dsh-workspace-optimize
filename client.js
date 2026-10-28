@@ -2395,7 +2395,10 @@ window.__ModuleLoader__.load({
       const pillText = accent ? readableTextColor(accent) : ''
       return h(
         'div',
-        { className: 'dwo-group' },
+        {
+          className: pill && !folded ? 'dwo-group dwo-group-pill' : 'dwo-group',
+          style: pill ? { '--dwo-accent': accent, '--dwo-line-left': `${10 + depth * 12}px` } : undefined,
+        },
         h(
           'div',
           {
@@ -2490,42 +2493,20 @@ window.__ModuleLoader__.load({
         ),
         folded
           ? null
-          : pill
-            ? h(
-                'div',
-                {
-                  className: 'dwo-ws-tree',
-                  style: { borderLeft: `2px solid ${accent}`, marginLeft: `${8 + depth * 12}px` },
-                },
-                h(
-                  React.Fragment,
-                  null,
-                  props.subGroups ?? null,
-                  rows.length === 0 && childCount === 0
-                    ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
-                    : rows.length === 0
-                      ? null
-                      : h(
-                          'div',
-                          { className: 'dwo-rows dwo-rows-inset' },
-                          rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
-                        ),
-                ),
-              )
-            : h(
-                React.Fragment,
-                null,
-                props.subGroups ?? null,
-                rows.length === 0 && childCount === 0
-                  ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
-                  : rows.length === 0
-                    ? null
-                    : h(
-                        'div',
-                        { className: 'dwo-rows', style: { paddingLeft: `${10 + depth * 12}px` } },
-                        rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
-                      ),
-              ),
+          : h(
+              React.Fragment,
+              null,
+              props.subGroups ?? null,
+              rows.length === 0 && childCount === 0
+                ? h('div', { className: 'dwo-group-empty' }, t('sidebar.empty'))
+                : rows.length === 0
+                  ? null
+                  : h(
+                      'div',
+                      { className: 'dwo-rows', style: { paddingLeft: `${10 + depth * 12}px` } },
+                      rows.map((session) => h(SessionRow, { key: session.id, session, workspaceId: workspace.id })),
+                    ),
+            ),
       )
     }
 
@@ -3093,12 +3074,12 @@ window.__ModuleLoader__.load({
 .dwo-ws:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
 .dwo-ws-fold{width:16px;height:20px;padding:0;border:0;background:transparent;color:inherit;font-size:10px;cursor:pointer;opacity:.7;flex:0 0 auto}
 .dwo-ws-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
-.dwo-ws-pillbar{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;flex:0 1 auto;padding:1px 9px 1px 2px;border-radius:8px}
+.dwo-ws-pillbar{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;flex:0 1 auto;height:20px;box-sizing:border-box;padding:0 8px;border-radius:7px}
 .dwo-ws-pillbar .dwo-ws-title{color:inherit}
 .dwo-ws-pillbar .dwo-ws-count{color:inherit;opacity:.75}
 .dwo-ws-fold-pill{color:inherit;opacity:.9}
-.dwo-ws-tree{margin-top:2px;padding-left:0}
-.dwo-rows-inset{padding-left:0}
+.dwo-group-pill{position:relative}
+.dwo-group-pill::after{content:'';position:absolute;left:var(--dwo-line-left,10px);top:27px;bottom:1px;width:2px;border-radius:1px;background:var(--dwo-accent,#60a5fa);opacity:.85;pointer-events:none}
 .dwo-ws-title{flex:0 1 auto;min-width:0;font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dwo-ws-count{flex:0 0 auto;font-size:10.5px;opacity:.5}
 .dwo-ws-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex:0 0 auto;opacity:0;transition:opacity .12s ease}

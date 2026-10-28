@@ -26,17 +26,17 @@ dsh plugin --profile web add dsh-workspace-optimize
 
 - **增强侧栏切换**：默认开启插件自定义增强侧栏，可切换回原版侧栏；但由于原版侧栏缺少部分api支持，只能实现部分增强功能
 
-    ![workspace-default-optimize](.\docs\workspace-default-optimize.png)
+    ![workspace-default-optimize](./docs/workspace-default-optimize.png)
 
 - **收藏、优先级、更改颜色**：同时为工作区文件夹和会话添加收藏、排序优先级和颜色
 
-    ![Color Highlight](.\docs\workspace-highlight-off.png)
+    ![Color Highlight](./docs/workspace-highlight-off.png)
 
 - **自定义颜色**：预设 9 色之外，可用原生取色器选择任意颜色（`#rrggbb`）
 
 - **色块高亮**（可选）：开启后工作区标题变为圆角色块（自动黑白字），并用同色竖线标出子项范围
 
-    ![Block Highlight](.\docs\workspace-highlight-on.png)
+    ![Block Highlight](./docs/workspace-highlight-on.png)
 
 - **工作区自由拖动排序**：拖动工作区标题行即可调整顺序，持久化到宿主，重启后保持
 
@@ -56,7 +56,7 @@ dsh plugin --profile web add dsh-workspace-optimize
 
 - **桌面提醒**：等待审批、等待回答、计划待审、完成、出错时发送系统通知（可配置通知类型、免打扰、窗口可见时是否提醒）
 
-    ![workspace-notice](.\docs\workspace-notice.png)
+    ![workspace-notice](./docs/workspace-notice.png)
 
 ### 会话操作（悬停与右键）
 

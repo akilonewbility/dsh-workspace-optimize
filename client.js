@@ -614,14 +614,20 @@ window.__ModuleLoader__.load({
     async function refreshSidebar() {
       // 等所有写操作落地、并确保 Host 已收到失效通知，再拉数据；
       // 否则可能读到写操作前的中间快照并覆盖乐观更新（回弹）。
+      const startedAt = Date.now()
+      const waitStart = Date.now()
       await waitWritesDone()
+      const waitWrites = Date.now() - waitStart
+      const invalidateStart = Date.now()
       await waitInvalidate()
+      const waitInvalidateMs = Date.now() - invalidateStart
       if (refreshingSidebar) {
         // 单飞期间的新请求：结束后再补一次，保证拿到最新数据
         pendingSidebarRefresh = true
         return refreshingSidebar
       }
       const seq = ++sidebarSeq
+      const requestStart = Date.now()
       store.sidebarLoading = true
       bump()
       refreshingSidebar = apiFetch('sidebar')
@@ -633,6 +639,15 @@ window.__ModuleLoader__.load({
           } else {
             store.sidebarError = (data && data.error) || '侧栏数据无效'
           }
+          reportDiag({
+            type: 'client-refresh',
+            at: startedAt,
+            waitWrites,
+            waitInvalidate: waitInvalidateMs,
+            request: Date.now() - requestStart,
+            total: Date.now() - startedAt,
+            ok: data && data.ok !== false,
+          })
           return data
         })
         .catch((error) => {
@@ -744,6 +759,11 @@ window.__ModuleLoader__.load({
     }
 
     let pendingInvalidate = null
+
+    /** 诊断用：把浏览器半的时间线上报给 Host（写入 workspace-optimize-timing.json）。 */
+    function reportDiag(entry) {
+      void apiFetch('diag', { method: 'POST', body: JSON.stringify(entry) }).catch(() => {})
+    }
 
     /** 通知 Host 失效侧栏快照（官方 Remote 写操作后调用，失败静默）。返回可等待的 Promise。 */
     function invalidateSidebar(sessionId) {
@@ -1379,6 +1399,9 @@ window.__ModuleLoader__.load({
     function onSessionEvent(event) {
       if (!event || typeof event !== 'object') return
       scheduleSidebarRefresh()
+      if (event.kind === 'waiting' || event.kind === 'complete') {
+        reportDiag({ type: 'event', kind: event.kind, at: Date.now(), sessionId: typeof event.sessionId === 'string' ? event.sessionId.slice(0, 14) : '' })
+      }
       if (event.kind === 'complete' && typeof event.sessionId === 'string') {
         if (store.selectedSessionId === event.sessionId) {
           // 用户就在这个会话：绿灯 5 秒后自动解除

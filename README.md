@@ -1,24 +1,25 @@
 # dsh-workspace-optimize
 
-为 **DeepSeek Harness（DSH）** 的左侧工作区视图提供增强侧栏：收藏、颜色标签（含自定义色与色块高亮）、工作区自由拖动排序、排序与置顶、跨工作区移动、正文搜索、会话状态灯与 Windows 通知。
+该插件对 **DeepSeek Harness（DSH）** 的左侧工作区视图进行了增强重绘并添加功能：收藏、颜色标签、工作区自由拖动排序、排序与置顶、会话状态灯与 Windows 通知。
 
 > 支持版本：>= 0.2.0-rc.1
 
 ---
-## 安装
-
-
+## 0.安装
+在 DSH Desktop 内安装：在 插件 - 添加插件 对话框内输入该插件包名`dsh-workspace-optimize`即可
+![Add Plugin](./docs/add-plugin.png)
+通过 npm 安装：
 ```powershell
 npm i dsh-workspace-optimize
 ```
-或
+通过 dsh cli 安装：
 ```powershell
-dsh plugin --profile desktop add dsh-workspace-optimize
+dsh plugin --profile web add dsh-workspace-optimize
 ```
 
 ---
 
-## 特性
+## 1.特性
 
 ### 侧栏
 
@@ -33,11 +34,11 @@ dsh plugin --profile desktop add dsh-workspace-optimize
 
 - **状态指示灯**：
 
-  | 灯 | 状态 |
-  | --- | --- |
-  | 🔵 蓝色呼吸 | 会话运行中 |
-  | 🟡 黄色呼吸 | 等待审批 / 等待回答 / 计划待审 |
-  | 🟢 绿色常亮（`#22c55e`） | 已完成（当前会话 5 秒后消失；其他会话保持到点开） |
+  | 灯 | 状态 | 预览 |
+  | --- | --- | --- |
+  | 🔵 蓝色呼吸 | 会话运行中 | ![Light Working](./docs/workspace-light-working.png) | 
+  | 🟡 黄色呼吸 | 等待审批 / 等待回答 / 计划待审 | ![Light Plan](./docs/workspace-light-plan.png) |
+  | 🟢 绿色常亮 | 已完成 | ![Light Working](./docs/workspace-light-success.png) |
 
 - 时间位置同步显示「等待审批 / 等待回答 / 计划待审 / 已完成」文字
 - **桌面提醒**：等待审批、等待回答、计划待审、完成、出错时发送系统通知（可配置通知类型、免打扰、窗口可见时是否提醒）

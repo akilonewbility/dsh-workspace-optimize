@@ -998,17 +998,27 @@ window.__ModuleLoader__.load({
       pushToast(t('sidebar.openFailed'))
     }
 
-    function startSession(workspaceId) {
+    async function startSession(workspaceId) {
       const ui = pluginCtx?.get?.('uiWorkspace')
-      if (ui && typeof ui.startSession === 'function') {
-        try {
-          ui.startSession(workspaceId)
-          return
-        } catch {
-          // 回退
-        }
+      if (!ui) {
+        pushToast(t('sidebar.openFailed'))
+        return
       }
-      pushToast(t('sidebar.openFailed'))
+      try {
+        let sessionId = ''
+        if (workspaceId && typeof ui.connectWorkspace === 'function') {
+          sessionId = await ui.connectWorkspace(workspaceId)
+        }
+        if (sessionId && typeof ui.openSession === 'function') {
+          ui.openSession(sessionId)
+          selectSession(sessionId)
+        } else if (typeof ui.startSession === 'function') {
+          ui.startSession(workspaceId)
+        }
+        await refreshSidebar()
+      } catch (error) {
+        pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
+      }
     }
 
     /** 归档/恢复后先本地更新，让列表立刻按当前过滤隐藏或出现，再后台刷新校正。 */
@@ -2597,7 +2607,7 @@ window.__ModuleLoader__.load({
                 'aria-label': t('sidebar.newSession'),
                 onClick: (event) => {
                   event.stopPropagation()
-                  void startSessionInWorkspace(workspace.id)
+                  void startSession(workspace.id)
                 },
               },
               h(PlusIcon, { size: 12 }),
@@ -2658,7 +2668,10 @@ window.__ModuleLoader__.load({
       const sessions = Array.isArray(sidebar?.sessions) ? sidebar.sessions : []
       const byId = new Map(sessions.map((session) => [session.id, session]))
       const query = (view.search || '').trim().toLowerCase()
+      const showBlank = snap.settings.showBlankSessions === true
       const keep = (session) => {
+        // 空白草稿默认隐藏，但当前选中的空白会话（例如刚点「新建对话」）必须显示。
+        if (session.blank && !showBlank && session.id !== snap.selectedSessionId) return false
         if (view.filter === 'hide' && session.archived) return false
         if (view.filter === 'only' && !session.archived) return false
         if (query && !String(session.title || '').toLowerCase().includes(query)) return false

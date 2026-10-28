@@ -65,4 +65,4 @@ jobs:
           if npm view "$NAME@$V" version >/dev/null 2>&1; then
             echo "::notice::$NAME@$V 已存在于 npm，跳过"; exit 0
           fi
-          npm publish --access public
+          npm stage publish --access public

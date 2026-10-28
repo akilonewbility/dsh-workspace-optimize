@@ -3074,7 +3074,7 @@ window.__ModuleLoader__.load({
 .dwo-ws:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
 .dwo-ws-fold{width:16px;height:20px;padding:0;border:0;background:transparent;color:inherit;font-size:10px;cursor:pointer;opacity:.7;flex:0 0 auto}
 .dwo-ws-dot{width:6px;height:6px;border-radius:50%;box-sizing:border-box;flex:0 0 auto}
-.dwo-ws-pillbar{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;flex:0 1 auto;height:20px;box-sizing:border-box;padding:0 8px;border-radius:7px}
+.dwo-ws-pillbar{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;flex:0 1 auto;height:20px;box-sizing:border-box;padding:0 8px 0 0;border-radius:7px}
 .dwo-ws-pillbar .dwo-ws-title{color:inherit}
 .dwo-ws-pillbar .dwo-ws-count{color:inherit;opacity:.75}
 .dwo-ws-fold-pill{color:inherit;opacity:.9}

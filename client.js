@@ -1015,7 +1015,18 @@ window.__ModuleLoader__.load({
         } else if (typeof ui.startSession === 'function') {
           ui.startSession(workspaceId)
         }
+        // 先让 Host 快照失效，再刷新；新会话在 Host 侧的归属可能稍晚落库，
+        // 若第一次没读到就再补一次。
+        await invalidateSidebar()
         await refreshSidebar()
+        if (sessionId) {
+          const present = (store.sidebar?.sessions ?? []).some((session) => session.id === sessionId)
+          if (!present) {
+            setTimeout(() => {
+              void invalidateSidebar().then(() => refreshSidebar())
+            }, 350)
+          }
+        }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -1126,7 +1137,8 @@ window.__ModuleLoader__.load({
         } finally {
           endWrite()
         }
-        const workspaceId = view?.id ?? view?.workspace?.id
+        // WorkspaceView 的 id 字段名是 workspaceId。
+        const workspaceId = view?.workspaceId ?? view?.id ?? view?.workspace?.id
         if (typeof workspaceId === 'string' && workspaceId.length > 0) {
           updateSidebar((sidebar) => ({
             ...sidebar,
@@ -1136,8 +1148,9 @@ window.__ModuleLoader__.load({
             ],
           }))
         }
-        invalidateSidebar()
-        scheduleSidebarRefresh({ debounce: true })
+        // 等失效请求真正到达 Host 后再刷新，避免命中旧快照造成延迟。
+        await invalidateSidebar()
+        await refreshSidebar()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }

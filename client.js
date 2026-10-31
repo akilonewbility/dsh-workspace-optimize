@@ -1012,6 +1012,8 @@ window.__ModuleLoader__.load({
         if (sessionId && typeof ui.openSession === 'function') {
           ui.openSession(sessionId)
           selectSession(sessionId)
+          // 先本地插入，Host 侧的会话归属可能稍晚才可读。
+          insertSessionLocally(sessionId, workspaceId)
         } else if (typeof ui.startSession === 'function') {
           ui.startSession(workspaceId)
         }
@@ -1030,6 +1032,33 @@ window.__ModuleLoader__.load({
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
+    }
+
+    /** 新建会话后先本地插入一行，避免等待 Host 侧归属落库才出现。 */
+    function insertSessionLocally(sessionId, workspaceId) {
+      updateSidebar((sidebar) => {
+        if ((sidebar.sessions ?? []).some((session) => session.id === sessionId)) return sidebar
+        const session = {
+          id: sessionId,
+          title: '',
+          cwd: '',
+          blank: true,
+          archived: false,
+          pinned: false,
+          running: false,
+          openable: true,
+          pending: '',
+          scheduleCount: 0,
+          updatedAt: Date.now(),
+        }
+        const sessions = [session, ...(sidebar.sessions ?? [])]
+        const workspaces = (sidebar.workspaces ?? []).map((workspace) =>
+          workspace.id === workspaceId
+            ? { ...workspace, sessionIds: [...(workspace.sessionIds ?? []), sessionId] }
+            : workspace,
+        )
+        return { ...sidebar, sessions, workspaces }
+      })
     }
 
     /** 归档/恢复后先本地更新，让列表立刻按当前过滤隐藏或出现，再后台刷新校正。 */

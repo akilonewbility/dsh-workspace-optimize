@@ -1140,11 +1140,12 @@ window.__ModuleLoader__.load({
         // WorkspaceView 的 id 字段名是 workspaceId。
         const workspaceId = view?.workspaceId ?? view?.id ?? view?.workspace?.id
         if (typeof workspaceId === 'string' && workspaceId.length > 0) {
+          // 官方 create 会把新工作区放在顺序最前面，本地插入必须一致，避免先底部再跳到顶部。
           updateSidebar((sidebar) => ({
             ...sidebar,
             workspaces: [
-              ...(sidebar.workspaces ?? []),
               { id: workspaceId, title: baseName(path), path, sessionIds: [] },
+              ...(sidebar.workspaces ?? []),
             ],
           }))
         }

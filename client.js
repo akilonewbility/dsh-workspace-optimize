@@ -1012,13 +1012,53 @@ window.__ModuleLoader__.load({
         if (sessionId && typeof ui.openSession === 'function') {
           ui.openSession(sessionId)
           selectSession(sessionId)
+          // 先本地插入，Host 侧的会话归属可能稍晚才可读。
+          insertSessionLocally(sessionId, workspaceId)
         } else if (typeof ui.startSession === 'function') {
           ui.startSession(workspaceId)
         }
+        // 先让 Host 快照失效，再刷新；新会话在 Host 侧的归属可能稍晚落库，
+        // 若第一次没读到就再补一次。
+        await invalidateSidebar()
         await refreshSidebar()
+        if (sessionId) {
+          const present = (store.sidebar?.sessions ?? []).some((session) => session.id === sessionId)
+          if (!present) {
+            setTimeout(() => {
+              void invalidateSidebar().then(() => refreshSidebar())
+            }, 350)
+          }
+        }
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
+    }
+
+    /** 新建会话后先本地插入一行，避免等待 Host 侧归属落库才出现。 */
+    function insertSessionLocally(sessionId, workspaceId) {
+      updateSidebar((sidebar) => {
+        if ((sidebar.sessions ?? []).some((session) => session.id === sessionId)) return sidebar
+        const session = {
+          id: sessionId,
+          title: '',
+          cwd: '',
+          blank: true,
+          archived: false,
+          pinned: false,
+          running: false,
+          openable: true,
+          pending: '',
+          scheduleCount: 0,
+          updatedAt: Date.now(),
+        }
+        const sessions = [session, ...(sidebar.sessions ?? [])]
+        const workspaces = (sidebar.workspaces ?? []).map((workspace) =>
+          workspace.id === workspaceId
+            ? { ...workspace, sessionIds: [...(workspace.sessionIds ?? []), sessionId] }
+            : workspace,
+        )
+        return { ...sidebar, sessions, workspaces }
+      })
     }
 
     /** 归档/恢复后先本地更新，让列表立刻按当前过滤隐藏或出现，再后台刷新校正。 */
@@ -1126,18 +1166,21 @@ window.__ModuleLoader__.load({
         } finally {
           endWrite()
         }
-        const workspaceId = view?.id ?? view?.workspace?.id
+        // WorkspaceView 的 id 字段名是 workspaceId。
+        const workspaceId = view?.workspaceId ?? view?.id ?? view?.workspace?.id
         if (typeof workspaceId === 'string' && workspaceId.length > 0) {
+          // 官方 create 会把新工作区放在顺序最前面，本地插入必须一致，避免先底部再跳到顶部。
           updateSidebar((sidebar) => ({
             ...sidebar,
             workspaces: [
-              ...(sidebar.workspaces ?? []),
               { id: workspaceId, title: baseName(path), path, sessionIds: [] },
+              ...(sidebar.workspaces ?? []),
             ],
           }))
         }
-        invalidateSidebar()
-        scheduleSidebarRefresh({ debounce: true })
+        // 等失效请求真正到达 Host 后再刷新，避免命中旧快照造成延迟。
+        await invalidateSidebar()
+        await refreshSidebar()
       } catch (error) {
         pushToast(`${t('toast.failed')}：${error instanceof Error ? error.message : String(error)}`)
       }
